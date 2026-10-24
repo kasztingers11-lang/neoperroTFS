@@ -9,6 +9,7 @@ function chunk(type,bytes){const body=Buffer.concat([Buffer.from(type),bytes]);l
 function png(w,h,pixel){const rows=Buffer.alloc((w*4+1)*h);for(let y=0;y<h;y++)for(let x=0;x<w;x++)Buffer.from(pixel(x/(w-1),y/(h-1)).map(Math.round)).copy(rows,y*(w*4+1)+1+x*4);const header=Buffer.alloc(13);header.writeUInt32BE(w);header.writeUInt32BE(h,4);header[8]=8;header[9]=6;return Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',header),chunk('IDAT',zlib.deflateSync(rows)),chunk('IEND',Buffer.alloc(0))]);}
 // Replace missing upstream texture URLs with small deterministic UI textures.
 const textures={
+ 'Glow.png':png(64,32,(x,y)=>[122,8,22,Math.pow(y,4)*150*(0.5+0.5*Math.sin(Math.PI*x))]),
  'Gradient.png':png(2,64,(_,y)=>[0,0,0,y*72]),
  'Hue.png':png(2,256,(_,y)=>{const n=y*6,c=255,x=(1-Math.abs(n%2-1))*255;return [...(n<1?[c,x,0]:n<2?[x,c,0]:n<3?[0,c,x]:n<4?[0,x,c]:n<5?[x,0,c]:[c,0,x]),255];}),
  'Saturation.png':png(128,128,(x,y)=>{const a=1-x*(1-y);const c=a===0?0:(1-x)*(1-y)/a*255;return [c,c,c,a*255];}),

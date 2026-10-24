@@ -1,33 +1,37 @@
 # neoperroTFS
 
-The original [Abyss Drawing interface](https://github.com/Eazvy/UILibs/blob/main/Librarys/Abyss/Example), cleaned up with readable UI-font text, red accents, optional slow color cycling and small transitions. Its compact horizontal tabs, framed two-column sections, sliders, dropdowns and color pickers retain the Abyss layout.
+The original [Abyss Drawing layout](https://github.com/Eazvy/UILibs/blob/main/Librarys/Abyss/Example), with clean text, black surfaces and a static dark-red glow beneath section titles and the selected tab. No animations or color cycling.
 
-This is a **UI-only demo**. The original main/rage example controls change menu state only; gameplay features have no implementation.
+This remains a **UI-only demo**. Main/rage controls manage menu state; gameplay features are not implemented.
+
+## Run and controls
+
+Run `loader.luau` in Real, or execute `dist/neoperroTFS.luau`.
+
+- **RightShift** hides and reopens the UI by default.
+- In **settings → interface**, click **show / hide UI**, then press your new key. Escape cancels capture. The capture key does not also toggle the menu.
+- Use **reset UI bind to RightShift** to restore the default.
+- **show keybind list** controls the floating panel. The panel has separate, padded rows and resizes when active bindings change. It hides with the menu.
+- Drag the menu header or keybind panel header to move them.
+- **save profile / load profile** preserve controls, the UI shortcut, and control keys with their Hold/Toggle/Always modes.
+- **unload UI** removes the UI and disconnects its event handlers.
+
+The watermark has been removed. Text input receives keyboard focus without toggling the menu.
 
 ## Logo
 
-[View the original PNG](assets/logo.png) · [Download the exact image](https://raw.githubusercontent.com/kasztingers11-lang/neoperroTFS/main/assets/logo.png)
+[View the exact original PNG](assets/logo.png) · [Download](https://raw.githubusercontent.com/kasztingers11-lang/neoperroTFS/main/assets/logo.png)
 
 ![Original neoperro logo](assets/logo.png)
 
-The PNG is the supplied 1254 × 1254 image, unchanged: 220,436 bytes. SHA-256: `1e4d00f434d682b47f9f5f53e07890435f5f018610417e384c5f24db808e23c1`.
+The supplied image is unchanged: 1254 × 1254, 220,436 bytes. SHA-256: `1e4d00f434d682b47f9f5f53e07890435f5f018610417e384c5f24db808e23c1`. The UI downloads it directly from this repository. The image's black margins are retained.
 
-The UI downloads that PNG directly from this repository and uses the same bytes for the loader, header icon and watermark. The full image contains substantial black space, so its eyes appear small when displayed as an icon. It is not cropped or recolored.
+## Source and performance
 
-## Run
+`src/Library.luau` contains the adapted Abyss renderer; `src/App.luau` declares the menu. Run `node build.mjs` to regenerate `dist/neoperroTFS.luau` and the small generated UI textures. No npm dependencies are required.
 
-Run `loader.luau` in Real, or run `dist/neoperroTFS.luau` directly. RightShift hides/shows the menu; drag the header to move it. The settings tab provides the accent picker, Static / Red pulse / Spectrum modes, animation toggle, profile save/load and unload button.
+This build uses four shared engine event connections instead of the earlier 249. It has no RenderStepped/Stepped UI callbacks, animated accent broadcasts, custom cursor loop or clock loop. Dragging and keybind-panel layout update in response to input or state changes. The glow is a static texture. These are structural reductions, not a measured FPS claim.
 
-Profiles store toggle, slider, dropdown and color-picker values in `neoperroTFS/Configs/default.json`. Keybindings are not saved in this version. Filesystem APIs are needed for profiles; Drawing and HTTP support are needed for the UI. This is not a Roblox Studio LocalScript.
+Profiles are stored in `neoperroTFS/Configs/default.json`. Drawing and HTTP support are required; filesystem APIs are needed for profiles. This is not a Roblox Studio LocalScript. See `VALIDATION.md` for tested behavior and limits.
 
-## Source
-
-- `src/Library.luau`: the adapted Abyss library and original widget layout.
-- `src/App.luau`: original demo tabs plus appearance settings.
-- `build.mjs`: dependency-free Node build; run `node build.mjs`.
-- `dist/neoperroTFS.luau`: generated runnable bundle.
-- `assets/logo.png`: exact user-supplied logo.
-
-The build supplies small gradient, hue and saturation textures because the upstream texture links no longer resolve. It removes unused anime decorations, obsolete settings presets, dead sample code and the synthetic caps-lock keypress. It fixes profile storage, control registration, duplicate fallback flags, color-picker updates, popup closing, tab refresh and teardown. Running the bundle again removes the previous instance. Real live reload also registers cleanup through `STATE.onCleanup`.
-
-The library and demo derive from Eazvy/UILibs's Abyss example; attribution remains with the original authors. See `VALIDATION.md` for checks performed.
+The library and demo derive from the Abyss example in Eazvy/UILibs; original authors retain attribution.
