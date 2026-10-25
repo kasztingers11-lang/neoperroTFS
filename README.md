@@ -2,7 +2,7 @@
 
 The original [Abyss Drawing layout](https://github.com/Eazvy/UILibs/blob/main/Librarys/Abyss/Example), with clean text, black surfaces and a static dark-red glow beneath section titles and the selected tab. Subtle motion preserves the rectangular layout; there is no color cycling.
 
-The Main tab includes gun mods, native-input head targeting, pathfinding retreat, nearby ammo resupply, inventory-driven cash upgrades and a third-person view with free camera control. An intermediate mouse/camera repair loaded in Roblox; the final route changes were completed offline and have not been injected. Sustained combat and survival still need live validation. All automation starts off. The original rectangular UI structure and exact logo are preserved.
+The Main tab includes gun mods, native-input head targeting, pathfinding retreat, nearby ammo resupply, ammo-box cash restocking, inventory-driven upgrades and a third-person view with free camera control. The current build loaded in Roblox with the new controls present, a free menu cursor, all automation off and the unfocused state correctly detected. Sustained combat and survival still need live validation. The original rectangular UI structure and exact logo are preserved.
 
 ## Main tab
 
