@@ -11,6 +11,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         Shop = CreateShopAdapter(), Navigation = CreateNavigation(), Refill = CreateAmmoAdapter(), Zombies = {}, LastScan = -10, LastStep = -10, LastVisual = -10,
         LastBuy = -10, NextPress = 0, Lines = {}, Notices = {}, InventoryDirty = true, WindowFocused = isrbxactive() == true}
     A.Refill.CanStart = function() return A.Alive and A:Focused() end
+    A.Shop.CanStart = function() return A.Alive and A:Focused() end
     local RenderName = "NeoperroAutomation"
     local function Connect(Signal, Callback, Bucket)
         local C = Signal:Connect(Callback)
@@ -51,8 +52,11 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if H and R and H.Health > 0 then return C, H, R end
         return nil
     end
+    function A:NativeFocused()
+        return self.WindowFocused ~= false and isrbxactive() == true
+    end
     function A:Focused()
-        return self.WindowFocused ~= false and isrbxactive() == true and Input:GetFocusedTextBox() == nil
+        return (self:NativeFocused() or Flags.FarmBackground == true) and Input:GetFocusedTextBox() == nil
             and not Library.WindowVisible and not Library.CapturingMenuKey
     end
     function A:ReleaseMouse()
@@ -60,21 +64,22 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             -- Clear only the latch belonging to our own press; native input can ignore releases unfocused.
             local B = self.PressedBinding
             if B and B.Environment then B.Environment.mouse1Down = false end
-            self.ReleasePending = true
+            if self.MouseMode ~= "native" then self.ReleasePending = true end
         end
-        if self.ReleasePending and isrbxactive() then
+        if self.ReleasePending and self:NativeFocused() then
             mouse1release()
             self.ReleasePending = false
         end
         self.MouseOwned = false
         self.PressedBinding = nil
+        self.MouseMode = nil
     end
     function A:Sprint(State)
         if not State and self.SprintOwned then self.SprintReleasePending = true end
-        if self.SprintReleasePending and isrbxactive() then
+        if self.SprintReleasePending and self:NativeFocused() then
             keyrelease(0xA0); self.SprintOwned = false; self.SprintReleasePending = false
         end
-        if State and not self.SprintOwned and not self.SprintReleasePending and isrbxactive()
+        if State and not self.SprintOwned and not self.SprintReleasePending and self:NativeFocused()
             and not Input:IsKeyDown(Enum.KeyCode.LeftShift) and not Input:IsKeyDown(Enum.KeyCode.RightShift) then
             keypress(0xA0); self.SprintOwned = true
         end
@@ -250,9 +255,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Bag = P:FindFirstChildOfClass("Backpack")
         local Best = Preferred
         if Bag and not Best then
+            local Score = -math.huge
             for _, T in ipairs(Bag:GetChildren()) do
                 if T:IsA("Tool") and T:FindFirstChild("GunScript") and T:FindFirstChild("CurrentValues")
-                    and (Value(T, "Clip", 0) ~= 0 or Value(T, "Ammo", 0) ~= 0) then Best = T; break end
+                    and (Value(T, "Clip", 0) ~= 0 or Value(T, "Ammo", 0) ~= 0) then
+                    local Ready = Value(T, "Clip", 0) ~= 0 and 100000 or 0
+                    local Current = Ready + math.clamp(Value(T, "Ammo", 0), 0, 99999)
+                    if Current > Score then Best = T; Score = Current end
+                end
             end
         end
         if Best then
@@ -310,6 +320,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not B then self:ReleaseMouse(); Status("FarmStatus", "Waiting for native gun script"); return end
         if Value(Tool, "Clip", 0) == 0 then
             self:ReleaseMouse()
+            if Value(Tool, "Ammo", 0) == 0 then self:Equip(P.Character:FindFirstChildOfClass("Humanoid")) end
             if Value(Tool, "Ammo", 0) ~= 0 and not self.Reloading and os.clock() > (self.NextReload or 0)
                 and type(B.Environment.reload) == "function" then
                 self.Reloading = true; self.NextReload = os.clock() + 1
@@ -323,12 +334,18 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         local FireType = Value(Tool, "FireType", "Single")
         if FireType == "Charge" then self:ReleaseMouse(); Status("FarmStatus", "Charge weapons need manual fire"); return end
-        if self.MouseOwned and self.PressedBinding ~= B then self:ReleaseMouse() end
+        local Native = not self:NativeFocused() and Flags.FarmBackground == true
+        if Native and type(B.Environment.mouse1Down) ~= "boolean" then
+            self:ReleaseMouse(); Status("FarmStatus", "Background fire unavailable"); return
+        end
+        if self.MouseOwned and (self.PressedBinding ~= B or (self.MouseMode == "native") ~= Native) then self:ReleaseMouse() end
+        if Native and self.MouseOwned and (FireType == "FullAuto" or FireType == "Continuous") then B.Environment.mouse1Down = true end
         if self.MouseOwned and FireType ~= "FullAuto" and FireType ~= "Continuous" then
             if os.clock() >= self.PressRelease then self:ReleaseMouse() end
         elseif not self.MouseOwned and os.clock() >= self.NextPress
-            and not Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) and not self.ReleasePending then
-            mouse1press(); self.MouseOwned = true; self.PressedBinding = B
+            and (Native or not Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) and not self.ReleasePending) then
+            if Native then B.Environment.mouse1Down = true else mouse1press() end
+            self.MouseOwned = true; self.PressedBinding = B; self.MouseMode = Native and "native" or "os"
             local Now = os.clock()
             local Frame = Number(self.FrameDelta, 1 / 60, 1 / 1000, 1 / 15)
             local Interval = math.max(Frame * 2, 60 / Number(B.Environment.LAS or Value(Tool, "AttackSpeed", 300), 300, 1, 7200))
@@ -336,14 +353,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             -- Keep elapsed-time cadence without replaying missed shots after a hitch.
             self.NextPress = (self.NextPress > Now - Interval and self.NextPress or Now) + Interval
         end
-        Status("FarmStatus", "Head lock: " .. self.Target.Model.Name)
+        Status("FarmStatus", (Native and "Background: " or "Head lock: ") .. self.Target.Model.Name)
     end
     function A:ChooseEscape(Root, Radius)
         local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
         return self.Navigation:Update(H, Root, self.Zombies, Radius)
     end
-    function A:Kite(H, Root)
-        self.MoveDirection = self:ChooseEscape(Root, Number(Flags.FarmDistance, 24, 5, 100))
+    function A:Kite(H, Root, Radius)
+        self.MoveDirection = self:ChooseEscape(Root, Radius or Number(Flags.FarmDistance, 24, 5, 100))
         self.Nearest = self.Navigation.Nearest
         Status("MoveStatus", self.Navigation.Status or "Planning retreat")
         if self.MoveDirection then
@@ -408,11 +425,13 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:AmmoTool()
         local T = self:Equipped()
-        if T and self.Refill:Needs(T) then return T end
+        local Threshold = Number(Flags.FarmRefillThreshold, 30, 5, 80)
+        if Flags.FarmTopUp and self.Shop:BetweenRounds() then Threshold = 90 end
+        if T and self.Refill:Needs(T, Threshold) then return T end
         local Bag = P:FindFirstChildOfClass("Backpack")
         if Bag then
             for _, Tool in ipairs(Bag:GetChildren()) do
-                if Tool:IsA("Tool") and Tool:FindFirstChild("GunScript") and self.Refill:Needs(Tool) then return Tool end
+                if Tool:IsA("Tool") and Tool:FindFirstChild("GunScript") and self.Refill:Needs(Tool, Threshold) then return Tool end
             end
         end
         return nil
@@ -422,16 +441,21 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if State == "refilled" then Status("AmmoStatus", "Reserve refilled")
         elseif State == "failed" then Status("AmmoStatus", "Refill interrupted or rejected") end
         if self.Refill.Pending then self:ReleaseAim(); Status("AmmoStatus", "Native ammo-box interaction"); return false end
-        if not Flags.FarmAutoRefill or self.Shop.Pending or self.Shop.RestockPending then
+        if not Flags.FarmAutoRefill or self.Shop.Pending or self.Shop.RestockPending or self.Shop.ReadyPending then
+            self.ResupplyEscapeRadius = nil
             if self.TravelPurpose == "ammo" then self:CancelTravel() end
             return false
         end
         local Tool = self:AmmoTool()
         if not Tool then
+            self.ResupplyEscapeRadius = nil
             if self.TravelPurpose == "ammo" then self:CancelTravel() end
             Status("AmmoStatus", "Reserve ammo sufficient"); return false
         end
         if not H or not self:Focused() then return false end
+        if self.TravelPurpose == "ammo" and self.AmmoDestination and self.PathFailedUntil and os.clock() < self.PathFailedUntil then
+            self.Refill:Avoid(self.AmmoDestination, 8); self:CancelTravel(); self.PathFailedUntil = nil
+        end
         local Box, Distance = self.Refill:Nearest(Root)
         if not Box then Status("AmmoStatus", "No stocked ammo box available"); return false end
         local Near = self.Navigation:Separation(Root.Position, self.Zombies)
@@ -441,6 +465,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             Status("AmmoStatus", "Retreating before resupply"); return false
         end
         if Distance >= 7 then
+            self.AmmoDestination = Box
             local Delta = Unit(Flat(Root.Position - Box.PrimaryPart.Position))
             if Delta.Magnitude < 0.01 then Delta = Vector3.new(1, 0, 0) end
             self:TravelToPoint(H, Root, Box.PrimaryPart.Position + Delta * 5, "ammo", "AmmoStatus", "Walking to ammo box", Box)
@@ -451,39 +476,30 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Context = self.Refill:Context()
         if not Context then Status("AmmoStatus", "Native refill unavailable"); return false end
         local Duration = self.Refill:Duration(Box, Context)
-        if Near < math.max(Radius + 8, 12 + Duration * 16) then Status("AmmoStatus", "Waiting for a safe refill gap"); return false end
+        local SafeGap = math.max(Radius + 8, 12 + Duration * 16)
+        if Near < SafeGap then
+            Status("AmmoStatus", "Making space for native refill")
+            if Flags.FarmKeepDistance then self.ResupplyEscapeRadius = SafeGap; self:Kite(H, Root, SafeGap); return true end
+            return false
+        end
+        self.ResupplyEscapeRadius = nil
         local _, Message = self.Refill:Begin(Tool, Box, Root)
         Status("AmmoStatus", Message)
         return false
     end
-    function A:TestFastRefill()
-        local _, H, Root = self:Character()
+    function A:StartFarm()
+        self:ScanInventory()
         local Tool = self:Equipped()
-        if not H or not Root or not Tool or not self:Focused() then
-            Window.SendNotification("Warning", "Hide UI, focus Roblox and equip a gun", 4); return
-        end
-        if self.Shop.Pending or self.Shop.RestockPending or self.Refill.Pending then
-            Window.SendNotification("Warning", "Wait for the current transaction", 4); return
-        end
-        local Box, Distance = self.Refill:Nearest(Root)
-        if not Box or Distance >= 8 then Window.SendNotification("Warning", "Test requires a stocked box within 8 studs", 4); return end
-        self:CancelTravel(); self:StopMovement(); self.Navigation:Reset(); self:ReleaseAim()
-        local Began, Message = self.Refill:Begin(Tool, Box, Root, true)
-        if Began then
-            self.FastRefillTest = self.Refill.Pending
-            Status("AmmoStatus", "Testing 0.01s native refill")
-        else Window.SendNotification("Warning", Message, 4) end
+        if Flags.UpgradeWeapon == "Select weapon" and Tool and self.Inventory[Tool.Name] ~= nil then Library.Items.UpgradeWeapon:Set(Tool.Name) end
+        for _, Key in ipairs({"FarmAutoShoot", "FarmKeepDistance", "FarmAutoRefill"}) do Library.Items[Key]:Set(true) end
+        Library:ChangeVisible(false)
     end
-    function A:PollRefillTest()
-        local Record = self.FastRefillTest
-        if not Record or not Record.Done then return end
-        self.FastRefillTest = nil
-        local After = Record.After or Record.Before
-        local Message = string.format("Fast refill: reserve %d -> %d (%.2fs)%s", Record.Before, After,
-            Record.Seconds or os.clock() - Record.Started, After > Record.Before and " | granted" or " | no ammo granted")
-        Status("AmmoStatus", After > Record.Before and "Fast test: reserve increased" or "Fast test: no ammo granted")
-        Window.SendNotification("Normal", Message, 6)
-        self.LastFastRefillResult = {Before = Record.Before, After = After, Seconds = Record.Seconds, Message = Message}
+    function A:StopAutomation()
+        for _, Key in ipairs({"FarmAutoShoot", "FarmKeepDistance", "FarmAutoRefill", "FarmRestockBox", "UpgradeEnabled", "FarmAutoReady"}) do
+            Library.Items[Key]:Set(false)
+        end
+        self:ReleaseAim(); self:CancelTravel(); self:StopMovement(); self.Navigation:Reset()
+        Status("FarmStatus", "Automation stopped")
     end
     function A:OrderedLevels()
         local Levels = self.Shop:Levels(Flags.UpgradeWeapon)
@@ -512,6 +528,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             self:ReleaseAim(); self:StopMovement()
             Status("RestockStatus", "Waiting for native restock"); return true
         elseif State == "submitted" or State == "unconfirmed" then
+            if State == "unconfirmed" then self.RestockError = true end
             Status("RestockStatus", State == "submitted" and "Restock sent; check box stock" or "Restock unconfirmed; no retry")
             return false
         end
@@ -546,7 +563,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             self:StopUpgrade("Upgrade unconfirmed; stopped to avoid repeat buys", false)
             return false
         elseif State == "waiting" then Status("UpgradeStatus", "Waiting for server confirmation"); return false end
-        if not Flags.UpgradeEnabled or self.Refill.Pending or self.Shop.RestockPending then return false end
+        if not Flags.UpgradeEnabled or self.Refill.Pending or self.Shop.RestockPending or self.Shop.ReadyPending then return false end
         if self.UnconfirmedWeapon == Flags.UpgradeWeapon then
             self:StopUpgrade("Previous upgrade unconfirmed; check native shop manually", false)
             return false
@@ -575,10 +592,28 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
                 self:StopUpgrade("Native shop error; auto upgrade stopped", false)
             else
                 if not Purchase then Guns:SetSuspended(false) end
+                self.UpgradeIdle = not Purchase and type(Reason) == "string"
+                    and (Reason == "Remaining upgrades locked" or Reason:find("Waiting for cash", 1, true) ~= nil)
                 Status("UpgradeStatus", Reason or "Upgrade unavailable")
             end
         end
         return false
+    end
+    function A:AutoReady(H)
+        local State = self.Shop:PollReady()
+        if State == "waiting" then Status("ReadyStatus", "Waiting for native Ready reply"); return end
+        if State == "unconfirmed" then Status("ReadyStatus", "Ready unconfirmed; no repeat vote"); return end
+        if not Flags.FarmAutoReady then self.ReadyQuietSince = nil; return end
+        if not H or not self:Focused() or not self.Shop:BetweenRounds() then self.ReadyQuietSince = nil; return end
+        local Busy = self.Shop.Pending or self.Shop.RestockPending or self.Refill.Pending or self.Travelling or self.PathComputing
+            or self.UnconfirmedWeapon or self.RestockError
+            or Flags.UpgradeEnabled and not self.UpgradeIdle
+        if not Busy and Flags.FarmAutoRefill then Busy = self:AmmoTool() ~= nil end
+        if Busy then self.ReadyQuietSince = nil; Status("ReadyStatus", "Finishing enabled shop / ammo tasks"); return end
+        self.ReadyQuietSince = self.ReadyQuietSince or os.clock()
+        if os.clock() - self.ReadyQuietSince < 1.5 then Status("ReadyStatus", "Tasks settled; starting shortly"); return end
+        local _, Message = self.Shop:TryReady()
+        Status("ReadyStatus", Message)
     end
     function A:HideVisuals()
         for _, Line in ipairs(self.Lines) do Line.Visible = false end
@@ -605,7 +640,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             self.DistanceText.Visible = true
         end
         if Flags.FarmShowCircle then
-            local Radius = Number(Flags.FarmDistance, 24, 5, 100)
+            local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
             if self.CircleRadius ~= Radius then
                 self.CircleRadius = Radius; self.CircleOffsets = {}
                 for I = 0, 47 do
@@ -624,8 +659,8 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             for Index = 1, 48 do
                 local Line = self.Lines[Index]
                 if not Line then
-                    Line = Drawing.new("Line"); Line.Color = Color3.fromRGB(125, 15, 30)
-                    Line.Thickness = 1; Line.Transparency = 0.7; self.Lines[Index] = Line
+                    Line = Drawing.new("Line"); Line.Color = Color3.fromRGB(235, 24, 59)
+                    Line.Thickness = 2; Line.Transparency = 0.85; self.Lines[Index] = Line
                 end
                 local X, Y = Points[Index], Points[Index % 48 + 1]
                 Line.Visible = X.Visible and Y.Visible
@@ -639,8 +674,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:Step()
         local Now = os.clock()
-        self:PollRefillTest()
-        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled or Flags.FarmAutoRefill or Flags.FarmRestockBox
+        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled or Flags.FarmAutoRefill or Flags.FarmRestockBox or Flags.FarmAutoReady
         if self.InventoryDirty or (Active or Library.WindowVisible) and Now - self.LastScan >= 1 then self:ScanInventory() end
         self:CameraState()
         local _, H, Root = self:Character()
@@ -655,17 +689,28 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         else
             if self.TravelPurpose == "shop" then self:CancelTravel() end
             local Distance = self.Navigation:Separation(Root.Position, self.Zombies)
-            local Radius = Number(Flags.FarmDistance, 24, 5, 100)
+            local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
             local Retreat = Flags.FarmKeepDistance and (Distance < Radius or self.Navigation.Active and Distance < Radius + 8)
             if Retreat then
-                self:CancelTravel(); self:Kite(H, Root)
+                self:CancelTravel(); self:Kite(H, Root, Radius)
                 self.Refill:Poll(); Status("AmmoStatus", Flags.FarmAutoRefill and "Retreating before resupply" or "Auto refill off")
             else
-                self.Navigation:Reset()
+                self.Navigation:Reset(); self.ResupplyEscapeRadius = nil
                 local AmmoTravelling = self:AutoRefill(H, Root)
                 if not AmmoTravelling then self:StopMovement() end
             end
             if not Flags.FarmAutoShoot then self:ReleaseAim() end
+        end
+        self:AutoReady(H)
+        local State = not H and "WAITING | respawn" or Library.WindowVisible and "PAUSED | menu open"
+            or not self:Focused() and "PAUSED | Roblox unfocused" or self.Shop.Pending and "SHOP | weapon upgrade"
+            or self.Shop.RestockPending and "SHOP | box restock" or self.Refill.Pending and "RESUPPLY | native interaction"
+            or self.TravelPurpose == "ammo" and "RESUPPLY | travelling" or self.TravelPurpose == "shop" and "SHOP | travelling"
+            or self.MoveDirection and "RETREAT | creating distance" or Flags.FarmAutoShoot and (self:NativeFocused() and "FARM | head targeting" or "BACKGROUND | native firing")
+            or "READY | automation off"
+        Status("RunStatus", State)
+        if Library.RunStatus and Library.RunStatus.SetColor and Library.Theme then
+            Library.RunStatus:SetColor(self:Focused() and Active and Library.Theme.Accent[1] or Library.Theme.TextInactive)
         end
         self:RefreshRender()
     end
@@ -676,7 +721,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not Flags.FarmAutoShoot then return end
         local _, H, Root = self:Character()
         local Camera = W.CurrentCamera
-        if not (H and Camera and self:Focused() and (not self.Travelling or self.TravelPurpose == "ammo") and not self.Shop.Pending and not self.Shop.RestockPending and not self.Refill.Pending and Flags.FarmAutoShoot) then
+        if not (H and Camera and self:Focused() and (not self.Travelling or self.TravelPurpose == "ammo") and not self.Shop.Pending and not self.Shop.RestockPending and not self.Shop.ReadyPending and not self.Refill.Pending and Flags.FarmAutoShoot) then
             self:ReleaseAim(); return
         end
         local Tool = self:Equipped()
@@ -733,6 +778,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             -- OS releases ignored while unfocused must finish once focus returns, including after unload.
             local FinalRelease
             FinalRelease = Input.WindowFocused:Connect(function()
+                self.WindowFocused = true
                 self:ReleaseMouse(); self:Sprint(false); FinalRelease:Disconnect()
             end)
         end
@@ -759,15 +805,19 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         A.Callbacks[Item] = {Previous = Previous, Owned = Owned}; Item.Callback = Owned
     end
     Own("UpgradeWeapon", function()
+        A.UpgradeIdle = false; A.ReadyQuietSince = nil
         if not A.Scanning then A.SavedWeapon = nil; A.SavedPriority = nil end
         A:ScanPriorities(); A:CancelTravel()
     end)
-    Own("UpgradePriority", function() A.SavedPriority = nil end)
+    Own("UpgradePriority", function() A.SavedPriority = nil; A.UpgradeIdle = false; A.ReadyQuietSince = nil end)
     Own("UpgradeEnabled", function(V) A.Notices["upgrade-stop"] = nil; if not V then A:CancelTravel() end end)
     Own("UpgradeShopFallback", function(V) if not V then A:CancelTravel() end end)
     Own("FarmAutoShoot", function(V) if not V then A:ReleaseAim() end end)
     Own("FarmKeepDistance", function(V) if not V then A:StopMovement(); A.Navigation:Reset() end end)
     Own("FarmAutoRefill", function(V) if not V and A.TravelPurpose == "ammo" then A:CancelTravel() end end)
+    Own("FarmBackground", function()
+        A:ReleaseAim(); A:StopMovement(); A:CancelTravel(); A.Navigation:Reset(); Guns:Refresh()
+    end)
     Own("FarmRestockBox", function(V) if not V and not Flags.UpgradeEnabled then A:CancelTravel() end end)
     Own("FarmUseSprint", function(V) if not V then A:Sprint(false) end end)
     Own("FarmShowDistance", function() A:HideVisuals() end)

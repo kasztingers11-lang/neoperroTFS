@@ -4,6 +4,7 @@ local ShopFactory = LoadSource("ShopAdapter")
 local GunFactory = LoadSource("Features")
 local NavFactory = LoadSource("Navigation")
 local AmmoFactory = LoadSource("AmmoAdapter")
+local VisualFactory = LoadSource("Visuals")
 local passed, failed = 0, 0
 local function test(name, fn)
     local ok, message = pcall(fn)
@@ -86,7 +87,7 @@ function Methods:IsDescendantOf(p) local x=self.Parent; while x do if x==p then 
 function Methods:Move(direction, relative) self.LastMove=direction; self.Relative=relative end
 function Methods:MoveTo(position) self.LastMoveTo=position end
 function Methods:EquipTool(tool) tool.Parent:Remove(tool); self.Parent:Add(tool) end
-typeof=function(x) return getmetatable(x)==Obj and "Instance" or type(x) end
+typeof=function(x) return getmetatable(x)==Obj and "Instance" or getmetatable(x)==V and "Vector3" or type(x) end
 Enum={KeyCode={LeftShift="LShift",RightShift="RShift"}, UserInputType={MouseButton1="M1"},
     RaycastFilterType={Exclude="Exclude"}, MouseBehavior={LockCenter="Center"},
     CameraMode={Classic="Classic"},RenderPriority={Camera={Value=200},Last={Value=2000}},PathStatus={Success="Success"},
@@ -150,12 +151,13 @@ local function setup(native)
             GetWaypoints=function(self) return {{Position=root.Position},{Position=self.To,Action="Walk"}} end}
     end
     local services={Players={LocalPlayer=p},RunService=run,UserInputService=input,
-        PathfindingService=paths,ReplicatedStorage=rs,Lighting={GetMinutesAfterMidnight=function() return 390 end}}
+        PathfindingService=paths,ReplicatedStorage=rs,HttpService={JSONDecode=function() error("bad JSON") end},Lighting={GetMinutesAfterMidnight=function() return 390 end}}
     game={GetService=function(_,name) return assert(services[name],name) end}; workspace=world
     local flags={UpgradeWeapon="Select weapon",UpgradePriority="Select upgrade",UpgradeMode="Selected upgrade only",
         FarmDistance=24,FarmAvoidWalls=true,FarmUseSprint=true,CameraDistance=10,UpgradeNotify=true,UpgradeShopFallback=true}
     local lib={Flags=flags,Items={},WindowVisible=false}
-    local keys={"UpgradeWeapon","UpgradePriority","UpgradeMode","UpgradeEnabled","UpgradeShopFallback","FarmAutoShoot","FarmRestockBox",
+    function lib:ChangeVisible(v) self.WindowVisible=v end
+    local keys={"UpgradeWeapon","UpgradePriority","UpgradeMode","UpgradeEnabled","UpgradeShopFallback","FarmAutoShoot","FarmRestockBox","FarmBackground","FarmAutoReady",
         "FarmKeepDistance","FarmUseSprint","FarmShowDistance","FarmShowCircle","FarmAutoRefill","CameraThirdPerson","CameraDistance"}
     for _,key in ipairs(keys) do
         local item={Callback=function() end,List={}}
@@ -169,6 +171,7 @@ local function setup(native)
     local notices={}; local win={SendNotification=function(_,message) table.insert(notices,message) end}
     local guns={Weapons={},Suspended=false,ApplyCount=0}
     function guns:SetSuspended(v) self.Suspended=v; self.ApplyCount=self.ApplyCount+1 end
+    function guns:Refresh() end
     function guns:BindWeapon(tool)
         local b={Environment={Range=100,mouse1Down=false,reload=function() self.Reloaded=true end}}
         self.Weapons[tool]=b; return b
@@ -208,6 +211,8 @@ local function setup(native)
         return "waiting",self.Pending
     end
     function shop:PollRestock() return "idle" end
+    function shop:PollReady() return "idle" end
+    function shop:TryReady() self.ReadyCalls=(self.ReadyCalls or 0)+1; return {},"Ready sent" end
     function shop:Destroy() self.Alive=false end
     local refill={}
     function refill:Poll() return "idle" end
@@ -339,6 +344,46 @@ test("focus-loss event blocks automation even when executor focus status remains
     eq(c.A.MoveDirection,nil); eq(c.A.Navigation.Active,false); eq(c.P.CameraMode,"FirstPerson")
     c.A:Step(); c.A:PreRender(1/240); eq(Presses,1); eq(c.Shop.Calls,0)
     c.Input.WindowFocused:Fire(); eq(c.A:Focused(),true); eq(c.P.CameraMode,"Classic")
+end)
+
+test("background mode drives the native gun latch without OS mouse or Shift input",function()
+    local c=setup(); local t=c.Weapon("Pistol",c.P.Character); c.Zombie("Target",8,0)
+    local b=c.Guns:BindWeapon(t); c.Lib.Items.FarmBackground:Set(true)
+    c.Lib.Flags.FarmAutoShoot=true; c.A:SnapshotZombies()
+    Active=false; c.Input.WindowFocusReleased:Fire(); c.Input.PhysicalMouse=true
+    c.A:PreRender(1/240); eq(c.A:Focused(),true); eq(Presses,0)
+    eq(b.Environment.mouse1Down,true); eq(c.A.MouseMode,"native")
+    c.A:Sprint(true); eq(ShiftPresses,0)
+    c.A:ReleaseAim(); eq(b.Environment.mouse1Down,false); eq(Releases,0)
+    c.Lib.Items.FarmBackground:Set(false); eq(c.A:Focused(),false)
+end)
+
+test("start farming discovers the equipped upgrade and stop releases every automatic action",function()
+    local c=setup(); c.Weapon("Pistol",c.P.Character)
+    c.Lib.WindowVisible=true; c.A:StartFarm()
+    eq(c.Lib.WindowVisible,false); eq(c.Lib.Flags.FarmAutoShoot,true); eq(c.Lib.Flags.FarmAutoRefill,true)
+    eq(c.Lib.Flags.FarmKeepDistance,true); eq(c.Lib.Flags.UpgradeWeapon,"Pistol")
+    eq(c.Lib.Flags.UpgradeEnabled,nil)
+    c.Lib.Flags.FarmRestockBox=true; c.Lib.Flags.UpgradeEnabled=true
+    c.A:StopAutomation(); eq(c.Lib.Flags.FarmAutoShoot,false); eq(c.Lib.Flags.FarmKeepDistance,false)
+    eq(c.Lib.Flags.FarmAutoRefill,false); eq(c.Lib.Flags.FarmRestockBox,false); eq(c.Lib.Flags.UpgradeEnabled,false)
+end)
+
+test("between-wave top-up raises the reserve trigger without enabling purchases",function()
+    local c=setup(); local t=c.Weapon("Pistol",c.P.Character)
+    local threshold
+    c.Refill.Needs=function(_,tool,n) eq(tool,t); threshold=n; return true end
+    c.Lib.Flags.FarmRefillThreshold=35; eq(c.A:AmmoTool(),t); eq(threshold,35)
+    c.Lib.Flags.FarmTopUp=true; eq(c.A:AmmoTool(),t); eq(threshold,90)
+    c.P.PlayerGui.VoteSkip.Text="Kills 1"; eq(c.A:AmmoTool(),t); eq(threshold,35)
+end)
+
+test("empty equipped guns switch to a loaded owned gun before an empty backup",function()
+    local c=setup(); local empty=c.Weapon("Empty",c.P.Character)
+    empty.CurrentValues.Clip.Value=0; empty.CurrentValues.Ammo.Value=0
+    local reload=c.Weapon("NeedsReload"); reload.CurrentValues.Clip.Value=0
+    c.Weapon("Ready"); c.Lib.Flags.FarmAutoShoot=true; c.A:Shoot(empty); flush()
+    assert(c.P.Character:FindFirstChild("Ready"))
 end)
 test("empty clips use native reload once, charge guns fail closed",function()
     local c=setup(); local t=c.Weapon("Pistol",c.P.Character); local z=c.Zombie("A",8,0)
@@ -575,15 +620,24 @@ test("queued native refill cancels before starting when focus is lost",function(
     eq(c.Calls(),0); eq(c.Ammo:Poll(),"failed"); eq(c.Tool.CurrentValues.Ammo.Value,10)
 end)
 
-test("explicit fast refill test scopes the timer and restores it after native return or error",function()
-    for _,throws in ipairs({false,true}) do
-        local c=ammoFixture(); c.Throw=throws
-        assert(c.Ammo:Begin(c.Tool,c.Box,c.Root,true)); eq(c.Box.Time.Value,5)
-        flush(); eq(c.SeenTime,0.01); eq(c.Box.Time.Value,5)
-        eq(c.Ammo:Poll(),throws and "failed" or "refilled")
-    end
-    local c=ammoFixture(); c.DestroyDuringNative=true
-    assert(c.Ammo:Begin(c.Tool,c.Box,c.Root,true)); flush(); eq(c.Box.Time.Value,5)
+test("reserve thresholds respect native capacity multipliers and exclude unlimited ammo",function()
+    local c=ammoFixture(); c.Tool.CurrentValues.Ammo.Value=50
+    eq(c.Ammo:Needs(c.Tool,20),false); eq(c.Ammo:Needs(c.Tool,30),true)
+    c.Tool.CurrentValues.MaxAmmo.Value=-1; eq(c.Ammo:Needs(c.Tool,90),false)
+end)
+
+test("failed refill backs off that box and permits another stocked box",function()
+    local c=ammoFixture(); c.Reject=true; assert(c.Ammo:Begin(c.Tool,c.Box,c.Root)); flush()
+    eq(c.Ammo:Poll(),"failed"); eq(c.Ammo:Nearest(c.Root),nil)
+    Now=Now+9; eq(c.Ammo:Nearest(c.Root),c.Box)
+end)
+
+test("refill follows native roof/deployable selection instead of changing an unrelated timer",function()
+    local c=ammoFixture(); local roof=instance("RoofAmmo","Model",c.Box.Parent)
+    roof.PrimaryPart=instance("Handle","Part",roof,{Position=Vector3.new(2,3,0)})
+    for key,value in pairs({Time=5,Ammo=500,MaxAmmo=500}) do instance(key,"NumberValue",roof,{Value=value}) end
+    eq(c.Ammo:NativeBox(c.Root),roof); eq(c.Ammo:Begin(c.Tool,c.Box,c.Root),false)
+    eq(c.Calls(),0); eq(c.Box.Time.Value,5); assert(c.Ammo:Begin(c.Tool,roof,c.Root))
 end)
 test("ammo selection respects creator-only deployables and unavailable stock",function()
     local c=ammoFixture(); instance("CreatorOnly","BoolValue",c.Box,{Value=true})
@@ -620,13 +674,20 @@ local function nativeShop()
     end
     local restockRemote=instance("SellRepair","RemoteEvent",c.RS)
     local repairUp={[1]=c.P,[3]=utility,[4]=restockRemote}
+    local skipModule=instance("SkipGui","ModuleScript",module.Parent)
+    local voted=instance("Voted","BoolValue",c.P,{Value=false})
+    local readyCalls=0
+    local ready=function() readyCalls=readyCalls+1; if not c.ReadyReject then voted.Value=true end end
+    local readyRemote=instance("VoteSkip","RemoteFunction",c.RS)
+    local readyUp={[1]=c.P,[2]=false,[5]=readyRemote}
     require=function(m)
         if m==restockModule then return {RepairStructure=repair} end
+        if m==skipModule then return {Vote=ready} end
         eq(m,module); return {Next=nextFn}
     end
     getfenv=function(fn) eq(fn,nextFn); return {UpdateUpgrade=update} end
-    debug={getinfo=function(fn) return {nups=fn==repair and 5 or 18} end,
-        getupvalue=function(fn,i) if fn==repair then return repairUp[i] end; eq(fn,update); return up[i] end,
+    debug={getinfo=function(fn) return {nups=fn==repair and 5 or fn==ready and 6 or 18} end,
+        getupvalue=function(fn,i) if fn==repair then return repairUp[i] end; if fn==ready then return readyUp[i] end; eq(fn,update); return up[i] end,
         setupvalue=function(fn,i,v) eq(fn,update); up[i]=v end}
     getconnections=function(s) return s.listeners end
     local level=c.Levels.Pistol["AP Rounds"]
@@ -642,8 +703,34 @@ local function nativeShop()
     c.Native=shop; c.Row=row; c.Level=level; c.Up=up; c.Frame=frame
     c.Clicks=function() return clicks end
     c.Box=box; c.Wave=wave; c.RepairCalls=function() return restockCalls end
+    c.Voted=voted; c.ReadyCalls=function() return readyCalls end
     return c
 end
+
+test("native ready is single-flight and never toggles an already-ready vote off",function()
+    local c=nativeShop();assert(c.Native:TryReady());eq(c.Native:PollReady(),"waiting")
+    eq(c.Native:TryReady(),nil);eq(c.Native:TryPurchase("Pistol",{c.Level}),nil)
+    flush();eq(c.ReadyCalls(),1);eq(c.Native:PollReady(),"ready")
+    eq(c.Native:TryReady(),nil);eq(c.Voted.Value,true);eq(c.ReadyCalls(),1)
+    c.Voted.Value=false;eq(c.Native:TryReady(),nil)
+    c.Wave.Value=3;assert(c.Native:TryReady());flush();eq(c.ReadyCalls(),2)
+end)
+
+test("intermission follows native Vote state instead of whichever duplicate button is found",function()
+    local c=nativeShop();local vote=instance("Vote","BoolValue",c.RS.Values,{Value=true})
+    c.P.PlayerGui.VoteSkip.Text="Kills 0";eq(c.Native:BetweenRounds(),true)
+    vote.Value=false;c.P.PlayerGui.VoteSkip.Text="Ready";eq(c.Native:BetweenRounds(),false)
+end)
+
+test("auto ready waits for purchases, ammo, uncertainty and a settled task interval",function()
+    local c=setup();c.Weapon("Pistol",c.P.Character);c.Lib.Flags.FarmAutoReady=true
+    c.Shop.Pending={};c.A:AutoReady(c.H);Now=Now+2;c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,nil)
+    c.Shop.Pending=nil;c.A:AutoReady(c.H);Now=Now+1;c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,nil)
+    Now=Now+0.6;c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,1)
+    c.A.UnconfirmedWeapon="Pistol";Now=Now+2;c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,1)
+    c.A.UnconfirmedWeapon=nil;c.Lib.Flags.FarmAutoRefill=true;c.Refill.Needs=function()return true end
+    Now=Now+2;c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,1)
+end)
 
 test("native ammo restock shares the purchase lock and attempts only once per round",function()
     local c=nativeShop(); local record=c.Native:TryRestock(20)
@@ -701,5 +788,136 @@ test("unrelated and structure refresh events never confirm a gun purchase",funct
     c.Result.OnClientEvent:Fire("Pistol",false); eq(c.Native:Poll(),"confirmed")
     c.Native:Destroy(); eq(c.Native.Confirmation.Enabled,false)
 end)
+local function visualFixture()
+    local c=setup(true)
+    Enum.HighlightDepthMode={Occluded="Occluded"}
+    Instance={new=function(class) return instance(class,class) end}
+    function Methods:Destroy()
+        self.Destroyed=true
+        if self.Parent then self.Parent:Remove(self) end
+        for _,x in ipairs(self:GetChildren()) do x:Destroy() end
+    end
+    local manager=instance("LocalVisualManager","LocalScript",instance("PlayerScripts","Folder",c.P))
+    c.Fire=instance("LocalFireEvent","BindableEvent",manager,{Event=signal()})
+    c.Hit=instance("RemoteHitmarker","RemoteEvent",c.RS.RemoteEvents,{OnClientEvent=signal()})
+    c.Damage=instance("ReturnServerDamage","RemoteEvent",c.RS.RemoteEvents,{OnClientEvent=signal()})
+    c.Wave=instance("LocalWave","IntValue",instance("Values","Folder",c.RS),{Value=2,Changed=signal()})
+    for _,key in ipairs({"VisualTracers","VisualHitChams","VisualHitIndicator"}) do
+        c.Lib.Flags[key]=true
+        local item={Callback=function() end}
+        function item:Set(v) c.Lib.Flags[key]=v; self.Callback(v) end
+        c.Lib.Items[key]=item
+    end
+    c.V=VisualFactory(c.Lib,{SendNotification=function(_,m) error(m) end})
+    return c
+end
+
+test("shot visuals observe local rays while hit indicators require server feedback",function()
+    local c=visualFixture(); local t=c.Weapon("Pistol",c.P.Character);local z=c.Zombie("Target",8,0)
+    local muzzle=instance("Muzzle","Part",t,{Position=Vector3.new(0,4,0)})
+    local rays={{z.Head.Position,z.Head,nil,muzzle.Position}}
+    c.Fire.Event:Fire({},t,muzzle,rays); eq(#c.V.Tracers,0)
+    c.Fire.Event:Fire(c.P,t,muzzle,rays)
+    eq(c.V.LastHit,-10); eq(c.V.RecentDamage,nil)
+    eq(#c.V.Tracers,1); assert(c.V.Chams[z.Model])
+    c.Hit.OnClientEvent:Fire(); c.Damage.OnClientEvent:Fire(42.5); c.Damage.OnClientEvent:Fire(-5)
+    c.Damage.OnClientEvent:Fire(0/0); c.Damage.OnClientEvent:Fire(math.huge)
+    eq(c.V.LastHit,Now); eq(c.V.RecentDamage,42.5)
+    c.V:Render(); eq(c.V.Panel,nil)
+    assert(c.V.DamageText.Visible)
+end)
+
+test("tracers and chams remain bounded and expire with elapsed time",function()
+    local c=visualFixture()
+    for i=1,500 do c.V:AddTracer(Vector3.new(0,4,0),Vector3.new(i,4,10)) end
+    eq(#c.V.Tracers,96)
+    for i=1,24 do c.V:AddCham(c.Zombie("Z"..i,i,10).Model) end
+    local n=0;for _ in pairs(c.V.Chams)do n=n+1 end;eq(n,16)
+    Now=Now+1; c.V:Render(); eq(next(c.V.Chams),nil)
+    for _,t in ipairs(c.V.Tracers)do eq(t.Active,false); eq(t.Core.Visible,false)end
+end)
+
+test("removed round stats stay absent and unload removes every owned effect",function()
+    local c=visualFixture(); c.V:OnHit(); c.V:OnDamage(100)
+    c.Cash.Value=1500; Now=Now+2; c.Wave.Value=3; c.Wave.Changed:Fire(3)
+    eq(c.V.Stats,nil); eq(c.V.Panel,nil); eq(#c.Wave.Changed.listeners,0)
+    c.V:AddCham(c.Zombie("Target",8,0).Model);c.V:Render()
+    local folder=c.V.Folder; local draws=c.V.Drawings; local callbacks=c.V.Callbacks
+    c.V:Destroy();eq(folder.Destroyed,true);eq(c.Run.Bindings.NeoperroHitVisuals,nil)
+    for _,d in ipairs(draws)do eq(d.Removed,true)end
+    for _,s in ipairs(c.V.Connections)do eq(s.Enabled,false)end
+    local last=c.V.LastHit; Now=Now+1; c.Hit.OnClientEvent:Fire();eq(c.V.LastHit,last)
+    for item,record in pairs(callbacks)do eq(item.Callback,record.Previous)end
+end)
+
+-- Input routing regression: production Library methods, mocked hitboxes only.
+local function bindingFixture()
+    local e=setmetatable({}, {__index=_G})
+    local function item(name,kind) return {Name=name,EnumType=kind} end
+    local K,U={},{}; e.Enum={KeyCode=K,UserInputType=U}
+    for _,name in ipairs({"Unknown","RightShift","Escape","Backspace","Delete","F7"}) do K[name]=item(name,K) end
+    for _,name in ipairs({"MouseButton1","MouseButton2","MouseButton3","Keyboard"}) do U[name]=item(name,U) end
+    e.typeof=function(v) return type(v)=="table" and v.EnumType and "EnumItem" or type(v) end
+    e.isrbxactive=function() return true end
+    e.UserInput={GetFocusedTextBox=function() return nil end}
+    e.Library={WindowVisible=true,MenuKey=K.RightShift,Bindings={},Flags={},Keys={Shortened={}},Theme={Text="white",TextInactive="gray",Accent={"red"}}}
+    e.Library.ChangeVisible=function(self,v) self.WindowVisible=v end
+    e.Toggle={Toggled=true}
+    e.Keybind={Key=K.Unknown,EnumType="KeyCode",StateType="Toggle",State=true,Shorten="None",Dropped=false,Binding=false}
+    e.Callbacks=0
+    e.Keybind.Callback=function(v) e.Callbacks=e.Callbacks+1;e.Toggle.Toggled=v end
+    e.Keybind.RemoveFromKeyBindGui=function() end
+    e.Options={Flag="Test_Bind",Title="Test"}
+    e.Window={BindList="",RefreshBinds=function() end}
+    e.Window.ClosePopups=function() e.Keybind.Dropped=false end
+    e.Keybind.Drop=function(self,v) self.Dropped=v end
+    e.Utility={OnMouse=function(o) return o==e.MouseTarget end}
+    e.Tab={Dropdowns={Left={},Right={}}}; e.ToggleTitle={Text="Test"}
+    for _,name in ipairs({"ToggleHitbox","KeybindInline","KeybindHoldInline","KeybindToggleInline","KeybindAlwaysInline","KeybindNoneInline","KeybindHoldValue","KeybindToggleValue","KeybindAlwaysValue","KeybindValue"}) do e[name]={} end
+    e.Library.Bindings={e.Keybind}
+    LoadUIInput(e)
+    function e:Input(kind,key) return {UserInputType=U[kind],KeyCode=K[key or "Unknown"]} end
+    function e:Dispatch(input)
+        if not self.Library.HandleMenuInput(input) then self.Keybind:HandleShortcut(input) end
+    end
+    return e
+end
+
+test("None cannot match mouse Unknown codes or keyboard input",function()
+    local e=bindingFixture();e.Library.WindowVisible=false
+    for _,kind in ipairs({"MouseButton1","MouseButton2","MouseButton3","Keyboard"})do e:Dispatch(e:Input(kind)) end
+    e:Dispatch(e:Input("Keyboard","F7"));eq(e.Callbacks,0);eq(e.Toggle.Toggled,true)
+end)
+test("right click opens bind popup without changing key mode or feature",function()
+    local e=bindingFixture();e.Keybind.Key=e.Enum.UserInputType.MouseButton2;e.Keybind.EnumType="UserInputType"
+    e.MouseTarget=e.ToggleHitbox;e:Dispatch(e:Input("MouseButton2"))
+    eq(e.Keybind.Dropped,true);eq(e.Callbacks,0);eq(e.Keybind.Key,e.Enum.UserInputType.MouseButton2);eq(e.Keybind.StateType,"Toggle")
+end)
+test("right click on popup options does not select them",function()
+    local e=bindingFixture();e.Keybind.Dropped=true;e.MouseTarget=e.KeybindHoldInline
+    e:Dispatch(e:Input("MouseButton2"));eq(e.Callbacks,0);eq(e.Keybind.StateType,"Toggle");eq(e.Keybind.Dropped,false)
+end)
+test("Set key click starts capture and only the following input assigns a key",function()
+    local e=bindingFixture();e.Keybind.Dropped=true;e.MouseTarget=e.KeybindAlwaysInline
+    e:Dispatch(e:Input("MouseButton1"));eq(e.Keybind.Binding,true);eq(e.Keybind.Key,e.Enum.KeyCode.Unknown)
+    e:Dispatch(e:Input("Keyboard","F7"));eq(e.Keybind.Key,e.Enum.KeyCode.F7);eq(e.Keybind.Binding,false);eq(e.Toggle.Toggled,true)
+end)
+test("None explicitly clears a Hold binding without changing the checkbox",function()
+    local e=bindingFixture();e.Keybind.Key=e.Enum.KeyCode.F7;e.Keybind.StateType="Hold";e.Keybind.Dropped=true
+    e.MouseTarget=e.KeybindNoneInline;e:Dispatch(e:Input("MouseButton1"))
+    eq(e.Keybind.Key,e.Enum.KeyCode.Unknown);eq(e.Keybind.StateType,"Toggle");eq(e.KeybindValue.Text,"None");eq(e.Toggle.Toggled,true)
+    e.Library.WindowVisible=false;e:Dispatch(e:Input("MouseButton2"));eq(e.Toggle.Toggled,true)
+end)
+test("intentional mouse binds work only with the menu hidden",function()
+    local e=bindingFixture();e.Keybind:Set(e.Enum.UserInputType.MouseButton2,"Toggle");e.Callbacks=0
+    e:Dispatch(e:Input("MouseButton2"));eq(e.Callbacks,0)
+    e.Library.WindowVisible=false;e:Dispatch(e:Input("MouseButton2"));eq(e.Callbacks,1);eq(e.Toggle.Toggled,false)
+end)
+test("Escape cancels capture and menu key cannot be accidentally assigned",function()
+    local e=bindingFixture();e.Keybind.Binding=true
+    e:Dispatch(e:Input("Keyboard","RightShift"));eq(e.Keybind.Binding,true);eq(e.Library.WindowVisible,true)
+    e:Dispatch(e:Input("Keyboard","Escape"));eq(e.Keybind.Binding,false);eq(e.Keybind.Key,e.Enum.KeyCode.Unknown);eq(e.Callbacks,0)
+end)
+
 print(string.format("%d passed, %d failed",passed,failed))
 assert(failed==0,"Offline behavioral tests failed")

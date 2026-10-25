@@ -17,7 +17,7 @@ InputGUI.Name = "neoperroInput"
 InputGUI.Parent = gethui and gethui() or CoreGui
 local Library: any = {
     Theme = {
-        Accent = {Color3.fromHex("#980f20"), Color3.fromHex("#980f20"), Color3.fromHex("#980f20")},
+        Accent = {Color3.fromHex("#e1243f"), Color3.fromHex("#e1243f"), Color3.fromHex("#e1243f")},
         Notification = {
             Error = Color3.fromHex("#c82828"),
             Warning = Color3.fromHex("#fc9803")
@@ -25,12 +25,12 @@ local Library: any = {
         Hitbox = Color3.fromRGB(69, 69, 69),
         Friend = Color3.fromRGB(0, 200, 0),
         Outline = Color3.fromHex("#000000"),
-        Inline = Color3.fromHex("#202020"),
-        LightContrast = Color3.fromHex("#090909"),
-        DarkContrast = Color3.fromHex("#050505"),
-        Text = Color3.fromHex("#e8e8e8"),
-        TextInactive = Color3.fromHex("#aaaaaa"),
-        Font = Drawing.Fonts.UI,
+        Inline = Color3.fromHex("#292227"),
+        LightContrast = Color3.fromHex("#0d0b0d"),
+        DarkContrast = Color3.fromHex("#030303"),
+        Text = Color3.fromHex("#f0f0f2"),
+        TextInactive = Color3.fromHex("#969196"),
+        Font = Drawing.Fonts.System,
         TextSize = 13,
         UseOutline = false
     },
@@ -48,7 +48,7 @@ local Library: any = {
         Letters = {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "Z", "X", "C", "V", "B", "N", "M"},
         KeyCodes = {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "Z", "X", "C", "V", "B", "N", "M", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Zero", "Insert", "Tab", "Home", "End", "LeftAlt", "LeftControl", "LeftShift", "RightAlt", "RightControl", "RightShift", "CapsLock"},
         Inputs = {"MouseButton1", "MouseButton2", "MouseButton3"},
-        Shortened = {["MouseButton1"] = "M1", ["MouseButton2"] = "M2", ["MouseButton3"] = "M3", ["Insert"] = "INS", ["LeftAlt"] = "LA", ["LeftControl"] = "LC", ["LeftShift"] = "LS", ["RightAlt"] = "RA", ["RightControl"] = "RC", ["RightShift"] = "RS", ["CapsLock"] = "CL"}
+        Shortened = {["Unknown"] = "--", ["MouseButton1"] = "M1", ["MouseButton2"] = "M2", ["MouseButton3"] = "M3", ["Insert"] = "INS", ["LeftAlt"] = "LA", ["LeftControl"] = "LC", ["LeftShift"] = "LS", ["RightAlt"] = "RA", ["RightControl"] = "RC", ["RightShift"] = "RS", ["CapsLock"] = "CL"}
     },
     Input = {
         Caplock = false,
@@ -314,6 +314,7 @@ do
             local Key = FindEnum(Enum.KeyCode, Values.MenuKey)
             if Key and Key ~= Enum.KeyCode.Unknown and Key ~= Enum.KeyCode.Escape then Library:SetMenuKey(Key) end
         end
+        local DeferredBinds = {}
         for Flag, Value in pairs(Values) do
             local Item = Library.Items[Flag]
             if Item then
@@ -325,7 +326,9 @@ do
                 elseif Item.TypeOf == "Keybind" and type(Value) == "table" and Value.Kind == "Keybind" then
                     local EnumType = Value.EnumType == "KeyCode" and Enum.KeyCode or Enum.UserInputType
                     local Key = FindEnum(EnumType, Value.Key)
-                    if Key and (Value.Mode == "Hold" or Value.Mode == "Toggle" or Value.Mode == "Always") then Item:Set(Key, Value.Mode) end
+                    if Key and (Value.Mode == "Hold" or Value.Mode == "Toggle" or Value.Mode == "Always") then
+                        table.insert(DeferredBinds, {Item = Item, Key = Key, Mode = Value.Mode})
+                    end
                 elseif Item.TypeOf == "Toggle" and type(Value) == "boolean" then
                     Item:Set(Value)
                 elseif Item.TypeOf == "Slider" and Finite(Value) then
@@ -335,6 +338,7 @@ do
                 end
             end
         end
+        for _, Bind in ipairs(DeferredBinds) do Bind.Item:Set(Bind.Key, Bind.Mode) end
         if Library.Automation then Library.Automation:RestoreSelection(Values) end
     end
     Utility.AddFolder = function(GetFolder)
@@ -562,6 +566,7 @@ do
     function Library.SelfDestruct()
         if Library.Destroyed then return end
         Library:SetMenuMouseCapture(false)
+        if Library.Visuals then pcall(Library.Visuals.Destroy, Library.Visuals) end
         if Library.Automation then pcall(Library.Automation.Destroy, Library.Automation) end
         if Library.Features then pcall(Library.Features.Destroy, Library.Features) end
         Library.Destroyed = true
@@ -600,15 +605,37 @@ do
             return true
         end
         if UserInput:GetFocusedTextBox() then return true end
-        -- A control being rebound owns this key; it must not also hide the menu.
-        for _, Popup in ipairs(Library.Popups) do if Popup.Binding then return false end end
+        -- Route bind UI before ordinary controls and gameplay shortcuts. One event
+        -- has one owner, even when a popup overlaps another control.
+        for _, Bind in ipairs(Library.Bindings) do
+            if Bind.Binding and Bind.HandleMenuInput then
+                Bind:HandleMenuInput(Input)
+                return true
+            end
+        end
         if Input.KeyCode == Library.MenuKey then
             Library:ChangeVisible(not Library.WindowVisible)
             return true
         end
+        if Library.WindowVisible then
+            for _, Bind in ipairs(Library.Bindings) do
+                if Bind.Dropped and Bind.HandleMenuInput and Bind:HandleMenuInput(Input) then return true end
+            end
+            for _, Bind in ipairs(Library.Bindings) do
+                if Bind.HandleMenuInput and Bind:HandleMenuInput(Input) then return true end
+            end
+        end
         return false
     end
     Library:SetMenuKey(Enum.KeyCode.RightShift)
+    Utility.AddConnection("WindowFocusReleased", function()
+        for _, Bind in ipairs(Library.Bindings) do
+            if Bind.StateType == "Hold" and Bind.State then
+                Bind.State = false; Bind.Callback(false, Bind.Key)
+            end
+        end
+        if Library.WindowInstance then Library.WindowInstance.RefreshBinds() end
+    end)
     function Library:SetBindListVisible(State)
         Library.BindListVisible = State
         local Show = State and Library.WindowVisible
@@ -694,7 +721,7 @@ do
             Window.RefreshBinds = function()
                 local Active, Signature = {}, {}
                 for _, Bind in ipairs(Library.Bindings) do
-                    if Bind.State then
+                    if Bind.State and Bind.Key ~= Enum.KeyCode.Unknown then
                         local Label = "[" .. (Library.Keys.Shortened[Bind.Key.Name] or Bind.Key.Name) .. "] " .. Bind.Title
                         table.insert(Active, Label)
                         table.insert(Signature, Label)
@@ -1086,7 +1113,7 @@ do
                 Tab["Render"][#Tab["Render"] + 1] = SectionTitle
                 table.insert(Tab.Render, SectionGlow)
                 function Section:Toggle(Options)
-                    local Toggle = {
+                    local Toggle: any = {
                         TypeOf = "Toggle",
                         Axis = Section.ContentAxis,
                         Toggled = Options.State == true,
@@ -1142,10 +1169,16 @@ do
                         Toggle.Toggled = State == true
                         Utility.Tween(ToggleOutline, "Color", Toggle.Toggled and Library.Theme.Accent[1] or Library.Theme.DarkContrast, 0.1)
                         Library.Flags[Options.Flag] = Toggle.Toggled
+                        if Toggle.FeatureBind then
+                            Toggle.FeatureBind.State = Toggle.Toggled
+                            Library.Flags[Options.Flag .. "_Bind"] = Toggle.Toggled
+                        end
                         Toggle.Callback(Toggle.Toggled)
+                        Window.RefreshBinds()
                     end
                     Utility.AddConnection("InputBegan", function(Input, Useless)
                         
+                        if Library.LastCapturedBindInput == Input then return end
                         for Index, Value in pairs(Tab.Dropdowns[Side]) do
                             if Value then
                                 return
@@ -1617,10 +1650,10 @@ do
                     end
                     function Toggle:Keybind(Options)
                         local Keybind: any = {
-                            Axis = Section.ContentAxis,
+                            Axis = Toggle.Axis + 21,
                             Title = Options.Title or "LOL",
-                            EnumType = (Options.Key or Enum.UserInputType.MouseButton2).EnumType == Enum.KeyCode and "KeyCode" or "UserInputType",
-                            Key = Options.Key or Enum.UserInputType.MouseButton2,
+                            EnumType = (Options.Key or Enum.KeyCode.Unknown).EnumType == Enum.KeyCode and "KeyCode" or "UserInputType",
+                            Key = Options.Key or Enum.KeyCode.Unknown,
                             StateType = Options.StateType or "Hold",
                             State = false,
                             Shorten = "",
@@ -1636,7 +1669,7 @@ do
                             Keybind.Callback(Keybind.State, Keybind.Key)
                             Library.Flags[Options.Flag] = true
                         end
-                        Keybind.Shorten = Library.Keys.Shortened[Keybind.Key.Name] or Keybind.Key.Name
+                        Keybind.Shorten = Keybind.Key == Enum.KeyCode.Unknown and "None" or Library.Keys.Shortened[Keybind.Key.Name] or Keybind.Key.Name
                         Keybind.ShowRender = ("[%s] %s"):format(Keybind.Shorten, Options.Title)
                         local KeybindInline = Utility.AddDrawing("Square", {
                             Position = Vector2.new(SectionInline.Position.X + SectionInline.Size.X - 40 - 6, SectionInline.Position.Y + Keybind.Axis + 2),
@@ -1673,8 +1706,8 @@ do
                             ZIndex = 2
                         })
                         local KeybindHoldInline = Utility.AddDrawing("Square", {
-                            Position = Vector2.new(SectionInline.Position.X + SectionInline.Size.X + 2 - 6, SectionInline.Position.Y + Keybind.Axis + 2),
-                            Size = Vector2.new(60, 16),
+                            Position = Vector2.new(SectionInline.Position.X + SectionInline.Size.X - 96 - 6, SectionInline.Position.Y + Keybind.Axis + 2),
+                            Size = Vector2.new(96, 20),
                             Thickness = 0,
                             Color = Library.Theme.Inline,
                             Visible = true,
@@ -1710,8 +1743,8 @@ do
                             ZIndex = 3
                         })
                         local KeybindToggleInline = Utility.AddDrawing("Square", {
-                            Position = Vector2.new(SectionInline.Position.X + SectionInline.Size.X + 2 - 6, SectionInline.Position.Y + Keybind.Axis + 18),
-                            Size = Vector2.new(60, 16),
+                            Position = Vector2.new(SectionInline.Position.X + SectionInline.Size.X - 96 - 6, SectionInline.Position.Y + Keybind.Axis + 22),
+                            Size = Vector2.new(96, 20),
                             Thickness = 0,
                             Color = Library.Theme.Inline,
                             Visible = true,
@@ -1746,8 +1779,8 @@ do
                             ZIndex = 3
                         })
                         local KeybindAlwaysInline = Utility.AddDrawing("Square", {
-                            Position = Vector2.new(SectionInline.Position.X + SectionInline.Size.X + 2 - 6, SectionInline.Position.Y + Keybind.Axis + 34),
-                            Size = Vector2.new(60, 16),
+                            Position = Vector2.new(SectionInline.Position.X + SectionInline.Size.X - 96 - 6, SectionInline.Position.Y + Keybind.Axis + 42),
+                            Size = Vector2.new(96, 20),
                             Thickness = 0,
                             Color = Library.Theme.Inline,
                             Visible = true,
@@ -1772,7 +1805,7 @@ do
                             ZIndex = 3
                         })
                         local KeybindAlwaysValue = Utility.AddDrawing("Text", {
-                            Text = "Always",
+                            Text = "Set key...",
                             Position = Vector2.new(KeybindAlwaysInline.Position.X + (KeybindAlwaysInline.Size.X / 2), KeybindAlwaysInline.Position.Y),
                             Center = true,
                             Outline = false,
@@ -1782,8 +1815,23 @@ do
                             Visible = true,
                             ZIndex = 3
                         })
+                        local KeybindNoneInline = Utility.AddDrawing("Square", {
+                            Position = Vector2.new(KeybindHoldInline.Position.X, KeybindHoldInline.Position.Y + 60),
+                            Size = Vector2.new(96, 20), Filled = true, Color = Library.Theme.Inline, Visible = false, ZIndex = 3
+                        })
+                        local KeybindNoneOutline = Utility.AddDrawing("Square", {
+                            Position = KeybindNoneInline.Position + Vector2.new(1, 1), Size = Vector2.new(94, 18),
+                            Filled = true, Color = Library.Theme.LightContrast, Visible = false, ZIndex = 3
+                        })
+                        local KeybindNoneValue = Utility.AddDrawing("Text", {
+                            Text = "None", Position = KeybindNoneInline.Position + Vector2.new(48, 2), Center = true,
+                            Color = Library.Theme.Text, Font = Library.Theme.Font, Size = Library.Theme.TextSize, Visible = false, ZIndex = 3
+                        })
                         function Keybind:Drop(State)
                             Keybind.Dropped = State
+                            KeybindNoneInline.Visible = State
+                            KeybindNoneOutline.Visible = State
+                            KeybindNoneValue.Visible = State
                             KeybindHoldInline.Visible = State
                             KeybindHoldOutline.Visible = State
                             KeybindHoldGradient.Visible = State
@@ -1819,90 +1867,66 @@ do
                                 KeybindToggleValue.Color = Library.Theme.Text
                                 KeybindHoldValue.Color = Library.Theme.Text
                             end
-                            Keybind.State = Keybind.StateType == "Always"
+                            Keybind.State = Keybind.StateType == "Always" or Keybind.StateType == "Toggle" and Toggle.Toggled
                             if Options.Flag then Library.Flags[Options.Flag] = Keybind.State end
                             Keybind.Callback(Keybind.State, Keybind.Key)
 
                         end
-                        Utility.AddConnection("InputBegan", function(Input, Useless)
-                            if Input.UserInputType == Enum.UserInputType.MouseButton1 then
-                                if Keybind.Binding then
-                                    Keybind.CapturedInput = Input
-                                    Keybind.Binding = false
-                                    Keybind.Key = Enum.UserInputType.MouseButton1
-                                    Keybind.EnumType = "UserInputType"
-                                    local Old = Keybind.Shorten
-                                    Keybind.Shorten = Library.Keys.Shortened[Keybind.Key.Name] or Keybind.Key.Name
-                                    Window.BindList = string.gsub(Window.BindList, "\n%[" .. Old .. "%] " .. Options.Title, ("\n[%s] %s"):format(Keybind.Shorten, Options.Title))
-                                    KeybindValue.Text = Keybind.Binding and "[...]" or Keybind.Shorten
-                                end
-                                if Utility.OnMouse(KeybindHoldInline) then
-                                    Keybind:SetStateType("Hold")
-                                end
-                                if Utility.OnMouse(KeybindToggleInline) then
-                                    Keybind:SetStateType("Toggle")
-                                end
-                                if Utility.OnMouse(KeybindAlwaysInline) then
-                                    Keybind:SetStateType("Always")
-                                end
-                                if Utility.OnMouse(KeybindInline) then
-                                    for Index, Value in pairs(Tab.Dropdowns[Side]) do
-                                        if Value then
-                                            return
-                                        end
+                        function Keybind:HandleMenuInput(Input)
+                            local InputType = Input.UserInputType
+                            if self.Binding then
+                                Library.LastCapturedBindInput = Input
+                                if InputType == Enum.UserInputType.Keyboard then
+                                    if Input.KeyCode == Enum.KeyCode.Escape then
+                                        self.Binding = false; KeybindValue.Text = self.Shorten
+                                    elseif Input.KeyCode == Enum.KeyCode.Backspace or Input.KeyCode == Enum.KeyCode.Delete then
+                                        self:Set(Enum.KeyCode.Unknown, self.StateType)
+                                    elseif Input.KeyCode ~= Library.MenuKey and Input.KeyCode ~= Enum.KeyCode.Unknown then
+                                        self:Set(Input.KeyCode, self.StateType)
                                     end
-                                    if Keybind.Binding then
-                                    Keybind.CapturedInput = Input
-                                        Keybind.Binding = false
-                                        KeybindValue.Text = Keybind.Shorten
-                                        Keybind.ShowRender = ("[%s] %s"):format(Keybind.Shorten, Options.Title)
-                                    else
-                                        Keybind.Binding = true
-                                        KeybindValue.Text = Keybind.Binding and "[...]" or Keybind.Shorten
-                                    end
-                                else
-                                    if Utility.OnMouse(KeybindHoldInline) or Utility.OnMouse(KeybindToggleInline) or Utility.OnMouse(KeybindAlwaysInline) then
-                                        return
-                                    end
-                                    Keybind.Dropped = false
-                                    Keybind:Drop(Keybind.Dropped)
-                                    Tab.Dropdowns["Left"][ToggleTitle.Text] = Keybind.Dropped
-                                    Tab.Dropdowns["Right"][ToggleTitle.Text] = Keybind.Dropped
+                                elseif InputType == Enum.UserInputType.MouseButton1 or InputType == Enum.UserInputType.MouseButton2 or InputType == Enum.UserInputType.MouseButton3 then
+                                    self:Set(InputType, self.StateType)
                                 end
-                            elseif Input.UserInputType == Enum.UserInputType.Keyboard then
-                                if Keybind.Binding then
-                                    Keybind.CapturedInput = Input
-                                    Keybind.Binding = false
-                                    Keybind.Key = Input.KeyCode
-                                    Keybind.EnumType = "KeyCode"
-                                    local Old = Keybind.Shorten
-                                    Keybind.Shorten = Library.Keys.Shortened[Keybind.Key.Name] or Keybind.Key.Name
-                                    KeybindValue.Text = Keybind.Shorten
-                                    Window.BindList = string.gsub(Window.BindList, "\n%[" .. Old .. "%] " .. Options.Title, ("\n[%s] %s"):format(Keybind.Shorten, Options.Title))
-                                    Keybind.ShowRender = ("[%s] %s"):format(Keybind.Shorten, Options.Title)
-                                end
-                            elseif Input.UserInputType == Enum.UserInputType.MouseButton2 then
-                                if Keybind.Binding then
-                                    Keybind.CapturedInput = Input
-                                    Keybind.Binding = false
-                                    Keybind.Key = Enum.UserInputType.MouseButton2
-                                    Keybind.EnumType = "UserInputType"
-                                    local Old = Keybind.Shorten
-                                    Keybind.Shorten = Library.Keys.Shortened[Keybind.Key.Name] or Keybind.Key.Name
-                                    KeybindValue.Text = Keybind.Shorten
-                                    Window.BindList = string.gsub(Window.BindList, "\n%[" .. Old .. "%] " .. Options.Title, ("\n[%s] %s"):format(Keybind.Shorten, Options.Title))
-                                    Keybind.ShowRender = ("[%s] %s"):format(Keybind.Shorten, Options.Title)
-                                end
-                                if Utility.OnMouse(KeybindInline) then
-                                    Keybind.Dropped = not Keybind.Dropped
-                                    Keybind:Drop(Keybind.Dropped)
-                                    Tab.Dropdowns["Left"][ToggleTitle.Text] = Keybind.Dropped
-                                    Tab.Dropdowns["Right"][ToggleTitle.Text] = Keybind.Dropped
-                                end
+                                return true
                             end
-                        end)
-                        Utility.AddConnection("InputBegan", function(Input, Useless)
-                            if Keybind.Binding or Keybind.CapturedInput == Input or UserInput:GetFocusedTextBox() then return end
+                            if not Library.WindowVisible then return false end
+                            local Left = InputType == Enum.UserInputType.MouseButton1
+                            local Right = InputType == Enum.UserInputType.MouseButton2
+                            if not Left and not Right then return false end
+                            if self.Dropped then
+                                -- Only an explicit LEFT click selects a row. Right click
+                                -- closes the popup without changing its key/mode/state.
+                                if Left and Utility.OnMouse(KeybindNoneInline) then
+                                    self:Set(Enum.KeyCode.Unknown, "Toggle")
+                                elseif Left and Utility.OnMouse(KeybindHoldInline) then
+                                    self:SetStateType("Hold")
+                                elseif Left and Utility.OnMouse(KeybindToggleInline) then
+                                    self:SetStateType("Toggle")
+                                elseif Left and Utility.OnMouse(KeybindAlwaysInline) then
+                                    self.Binding = true; KeybindValue.Text = "[...]"
+                                end
+                                Window:ClosePopups()
+                                Library.LastCapturedBindInput = Input
+                                return true
+                            end
+                            if Right and (Utility.OnMouse(ToggleHitbox) or Utility.OnMouse(KeybindInline)) then
+                                Window:ClosePopups()
+                                self:Drop(true)
+                                Tab.Dropdowns.Left[ToggleTitle.Text] = true
+                                Tab.Dropdowns.Right[ToggleTitle.Text] = true
+                                Library.LastCapturedBindInput = Input
+                                return true
+                            end
+                            if Left and Utility.OnMouse(KeybindInline) then
+                                Window:ClosePopups()
+                                self.Binding = true; KeybindValue.Text = "[...]"
+                                Library.LastCapturedBindInput = Input
+                                return true
+                            end
+                            return false
+                        end
+                        function Keybind:HandleShortcut(Input)
+                            if Keybind.Key == Enum.KeyCode.Unknown or Library.WindowVisible or Keybind.Binding or Keybind.CapturedInput == Input or Library.LastCapturedBindInput == Input or UserInput:GetFocusedTextBox() or not isrbxactive() then return end
                             if (Keybind.EnumType == "KeyCode" and Input.KeyCode == Keybind.Key) or (Keybind.EnumType == "UserInputType" and Input.UserInputType == Keybind.Key) then
                                 if Keybind.StateType ~= "Always" then
                                     if Keybind.StateType == "Toggle" then
@@ -1921,12 +1945,14 @@ do
                                     Library.Flags[Options.Flag] = Keybind.State
                                 end
                             end
-                        end)
+                        end
+                        Utility.AddConnection("InputBegan", function(Input) Keybind:HandleShortcut(Input) end)
                         Keybind:SetStateType(Keybind.StateType)
                         function Keybind:RemoveFromKeyBindGui()
                             Window.BindList = string.gsub(Window.BindList, "\n%[" .. Keybind.Shorten .. "%] " .. Options.Title, "")
                         end
                         Utility.AddConnection("InputEnded", function(Input, Useless)
+                            if Keybind.Key == Enum.KeyCode.Unknown then return end
                             if (Keybind.EnumType == "KeyCode" and Input.KeyCode == Keybind.Key) or (Keybind.EnumType == "UserInputType" and Input.UserInputType == Keybind.Key) then
                                 if Keybind.StateType ~= "Always" then
                                     if Keybind.StateType == "Hold" then
@@ -1948,9 +1974,10 @@ do
                             assert(typeof(Key) == "EnumItem" and (Key.EnumType == Enum.KeyCode or Key.EnumType == Enum.UserInputType), "Invalid binding")
                             self.Key = Key
                             self.EnumType = Key.EnumType == Enum.KeyCode and "KeyCode" or "UserInputType"
-                            self.Shorten = Library.Keys.Shortened[Key.Name] or Key.Name
+                            self.Shorten = Key == Enum.KeyCode.Unknown and "None" or Library.Keys.Shortened[Key.Name] or Key.Name
                             self.Binding = false
                             KeybindValue.Text = self.Shorten
+                            KeybindValue.Color = Key == Enum.KeyCode.Unknown and Library.Theme.TextInactive or Library.Theme.Text
                             self:SetStateType(Mode or self.StateType)
                             Window.RefreshBinds()
                         end
@@ -1962,6 +1989,8 @@ do
                         table.insert(Library.Popups, Keybind)
                         return Keybind
                     end
+                    Toggle.FeatureBind = Toggle:Keybind({Title = Options.Title, Flag = Options.Flag .. "_Bind",
+                        Key = Enum.KeyCode.Unknown, StateType = "Toggle", Callback = function(State) Toggle:Set(State) end})
                     Toggle:Set(Toggle.Toggled)
                     Library.Items[Options.Flag] = Toggle
                     return Toggle
@@ -2985,6 +3014,7 @@ do
                     function Label:Set(Txt)
                         LabelTitle.Text = Txt
                     end
+                    function Label:SetColor(Color) LabelTitle.Color = Color end
                     Section.ContentAxis = Section.ContentAxis + LabelTitle.Size + 8
                     Tab.SectionAxis = {
                         Side == "Left" and Tab.SectionAxis[1] +  LabelTitle.Size + 8 or Tab.SectionAxis[1], 
@@ -3264,7 +3294,7 @@ do
                     end)
                     Utility.AddConnection("InputBegan", function(Input, Useless)
                         
-                        if Keybind.Binding or Keybind.CapturedInput == Input or UserInput:GetFocusedTextBox() then return end
+                        if Keybind.Key == Enum.KeyCode.Unknown or Library.WindowVisible or Keybind.Binding or Keybind.CapturedInput == Input or UserInput:GetFocusedTextBox() then return end
                         
                         if (Keybind.EnumType == "KeyCode" and Input.KeyCode == Keybind.Key) or (Keybind.EnumType == "UserInputType" and Input.UserInputType == Keybind.Key) then
                             if Keybind.StateType == "Toggle" then
@@ -3277,6 +3307,8 @@ do
                     end)
                     Keybind:SetStateType(Keybind.StateType)
                     Utility.AddConnection("InputEnded", function(Input, Useless)
+                        
+                        if Keybind.Key == Enum.KeyCode.Unknown then return end
                         
                         if (Keybind.EnumType == "KeyCode" and Input.KeyCode == Keybind.Key) or (Keybind.EnumType == "UserInputType" and Input.UserInputType == Keybind.Key) then
                             if Keybind.StateType == "Hold" then

@@ -16,6 +16,12 @@ return function()
     end
     function A:BetweenRounds()
         local Z = W:FindFirstChild("Zombies")
+        local Values = RS:FindFirstChild("Values")
+        local Vote = Values and Values:FindFirstChild("Vote")
+        if Vote then
+            local Time = game:GetService("Lighting"):GetMinutesAfterMidnight()
+            return Vote.Value == true and Time >= 360 and Time < 1080
+        end
         local G = P:FindFirstChild("PlayerGui")
         local Button = G and G:FindFirstChild("VoteSkip", true)
         return Z ~= nil and #Z:GetChildren() == 0 and Button ~= nil
@@ -48,7 +54,7 @@ return function()
         return self.Context
     end
     function A:TryPurchase(Weapon, OrderedLevels)
-        if not self.Alive or self.Pending or self.RestockPending then return nil, "Waiting for confirmation" end
+        if not self.Alive or self.Pending or self.RestockPending or self.ReadyPending then return nil, "Waiting for confirmation" end
         if not self:BetweenRounds() then return nil, "Waiting for round end" end
         if not self:InShop() then return nil, "Enter the shop to upgrade" end
         if not self.Confirmation then return nil, "Native confirmation event unavailable" end
@@ -130,7 +136,7 @@ return function()
         return {Purchase = Purchase, Utility = Utility}
     end
     function A:TryRestock(Threshold)
-        if not self.Alive or self.Pending or self.RestockPending then return nil, "Another purchase is pending" end
+        if not self.Alive or self.Pending or self.RestockPending or self.ReadyPending then return nil, "Another purchase is pending" end
         if not self:BetweenRounds() then return nil, "Restock waits for round end" end
         local Minutes = game:GetService("Lighting"):GetMinutesAfterMidnight()
         if Minutes < 360 or Minutes >= 1080 then return nil, "Restock is daytime only" end
@@ -173,6 +179,44 @@ return function()
         Record.AfterStock = Record.Box.Parent and Record.Box.Ammo.Value or Record.BeforeStock
         return Record.Error and "unconfirmed" or "submitted", Record
     end
+    function A:TryReady()
+        if not self.Alive or self.Pending or self.RestockPending or self.ReadyPending then return nil, "Waiting for shop transactions" end
+        if not self:BetweenRounds() then return nil, "Waiting for round end" end
+        local Voted = P:FindFirstChild("Voted")
+        if not Voted then return nil, "Native ready state unavailable" end
+        if Voted.Value == true then return nil, "Ready; waiting for other players" end
+        local Values = RS:FindFirstChild("Values")
+        local Wave = Values and Values:FindFirstChild("LocalWave")
+        if not Wave or self.ReadyAttemptedWave == Wave.Value then return nil, "Ready already attempted this round" end
+        local Scripts = P:FindFirstChild("PlayerScripts")
+        local Manager = Scripts and Scripts:FindFirstChild("GuiManager")
+        local Main = Manager and Manager:FindFirstChild("MainGui")
+        local Module = Main and Main:FindFirstChild("SkipGui")
+        if not Module then return nil, "Native ready version unsupported" end
+        local Native = Load(Module)
+        local Fn = type(Native) == "table" and Native.Vote
+        if type(Fn) ~= "function" or debug.getinfo(Fn).nups ~= 6 then return nil, "Native ready version unsupported" end
+        local Remote = debug.getupvalue(Fn, 5)
+        if debug.getupvalue(Fn, 1) ~= P or typeof(Remote) ~= "Instance" or Remote.Name ~= "VoteSkip" then return nil, "Native ready version unsupported" end
+        if debug.getupvalue(Fn, 2) ~= false then return nil, "Native ready request busy" end
+        local Record = {Done = false, Started = os.clock()}
+        self.ReadyPending = Record; self.ReadyAttemptedWave = Wave.Value
+        task.spawn(function()
+            if not self.Alive or self.CanStart and not self.CanStart() then Record.Done = true; return end
+            local OK, Error = pcall(Fn, Native)
+            Record.Error = not OK and tostring(Error) or nil
+            Record.Ready = OK and Voted.Parent ~= nil and Voted.Value == true
+            Record.Done = true
+        end)
+        return Record, "Sending native Ready vote"
+    end
+    function A:PollReady()
+        local Record = self.ReadyPending
+        if not Record then return "idle" end
+        if not Record.Done then return "waiting" end
+        self.ReadyPending = nil
+        return Record.Ready and "ready" or "unconfirmed"
+    end
     function A:Poll()
         local Pending = self.Pending
         if not Pending then return "idle" end
@@ -193,6 +237,7 @@ return function()
         if self.Confirmation then self.Confirmation:Disconnect() end
         self.Pending = nil
         self.RestockPending = nil
+        self.ReadyPending = nil
     end
     local Remotes = RS:FindFirstChild("RemoteEvents")
     local Result = Remotes and Remotes:FindFirstChild("RefreshItemStats")

@@ -33,7 +33,7 @@ test('all bundled UI textures match their PNG artifacts',()=>{
 });
 
 test('distribution includes every current source module',()=>{
-  for(const name of ['Library','Features','ShopAdapter','Navigation','AmmoAdapter','Automation','App']){
+  for(const name of ['Library','Features','ShopAdapter','Navigation','AmmoAdapter','Automation','Visuals','App']){
     assert.ok(bundle.includes(read(`src/${name}.luau`).toString('utf8')),`${name} is missing or stale`);
   }
 });

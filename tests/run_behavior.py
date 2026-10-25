@@ -25,4 +25,24 @@ def load_source(name):
 
 
 lua.globals().LoadSource = load_source
+
+
+def load_ui_input(env):
+    # Execute exact production methods with explicit UI dependencies. Loading the
+    # entire Drawing library would require Roblox rendering and Luau operators.
+    source = (root / 'src' / 'Library.luau').read_text(encoding='utf-8')
+    ranges = [
+        ('    function Library.HandleMenuInput(Input)', '    Library:SetMenuKey(Enum.KeyCode.RightShift)'),
+        ('                        function Keybind:SetStateType(State)',
+         '                        Utility.AddConnection("InputBegan", function(Input) Keybind:HandleShortcut(Input) end)'),
+        ('                        function Keybind:Set(Key, Mode)', '                        table.insert(Library.Bindings, Keybind)'),
+    ]
+    methods = []
+    for start, end in ranges:
+        first = source.index(start)
+        methods.append(source[first:source.index(end, first)])
+    lua.eval("function(s, e) return assert(load(s, 'production UI input', 't', e))() end")('\n'.join(methods), env)
+
+
+lua.globals().LoadUIInput = load_ui_input
 lua.execute((root / 'tests' / 'automation.test.lua').read_text(encoding='utf-8'))

@@ -1,0 +1,215 @@
+-- Client-only shot effects. Hit indicators use native server notifications.
+return function(Library: any, Window: any)
+    local P: any = game:GetService("Players").LocalPlayer
+    local RS: any = game:GetService("ReplicatedStorage")
+    local Run = game:GetService("RunService")
+    local Http = game:GetService("HttpService")
+    local W: any = workspace
+    local Flags = Library.Flags
+    local V: any = {Alive = true, Connections = {}, Callbacks = {}, Tracers = {}, Chams = {},
+        Drawings = {}, LastHit = -10, DamageAt = -10}
+    local Red = Color3.fromRGB(255, 25, 65)
+    local White = Color3.fromRGB(255, 237, 241)
+    local RenderName = "NeoperroHitVisuals"
+    local function Finite(N) return type(N) == "number" and N == N and math.abs(N) < math.huge end
+    local function Duration(Key, Default)
+        local N = Flags[Key]
+        return math.clamp(Finite(N) and N or Default, 0.1, 0.8)
+    end
+    local function Connect(S, Fn)
+        if not S then return end
+        local C = S:Connect(Fn); table.insert(V.Connections, C); return C
+    end
+    local function DrawingObject(Kind, Properties)
+        local D = Drawing.new(Kind)
+        for K, Value in pairs(Properties) do D[K] = Value end
+        table.insert(V.Drawings, D)
+        return D
+    end
+    local function Destroy(O) if O then pcall(function() O:Destroy() end) end end
+    function V:Point(Value)
+        if typeof(Value) == "Vector3" then return Value end
+        if type(Value) == "string" and #Value < 2048 then
+            local OK, Data = pcall(Http.JSONDecode, Http, Value)
+            if OK and type(Data) == "table" and Finite(Data[1]) and Finite(Data[2]) and Finite(Data[3]) then
+                return Vector3.new(Data[1], Data[2], Data[3])
+            end
+        end
+        return nil
+    end
+    function V:Zombie(Part)
+        if typeof(Part) ~= "Instance" then return nil end
+        local Folder = W:FindFirstChild("Zombies")
+        local Node = Part
+        for _ = 1, 8 do
+            if not Node or Node == W then break end
+            if Node:IsA("Model") and Folder and Node:IsDescendantOf(Folder) and Node:FindFirstChildOfClass("Humanoid") then return Node end
+            Node = Node.Parent
+        end
+        return nil
+    end
+    function V:AddCham(Model)
+        if not Flags.VisualHitChams or not Model then return end
+        local Existing = self.Chams[Model]
+        if Existing then Existing.At = os.clock(); return end
+        local Count, OldestModel, Oldest = 0, nil, math.huge
+        for M, Record in pairs(self.Chams) do
+            Count = Count + 1
+            if Record.At < Oldest then Oldest = Record.At; OldestModel = M end
+        end
+        if Count >= 16 and OldestModel then Destroy(self.Chams[OldestModel].Object); self.Chams[OldestModel] = nil end
+        if not self.Folder then
+            self.Folder = Instance.new("Folder"); self.Folder.Name = "NeoperroHitEffects"; self.Folder.Parent = W
+        end
+        local H = Instance.new("Highlight")
+        H.Name = "HitFlash"; H.Adornee = Model; H.FillColor = Red; H.OutlineColor = White
+        H.FillTransparency = 0.2; H.OutlineTransparency = 0; H.DepthMode = Enum.HighlightDepthMode.Occluded
+        H.Parent = self.Folder
+        self.Chams[Model] = {Object = H, At = os.clock()}
+    end
+    function V:AddTracer(Start, Finish)
+        if not Flags.VisualTracers or not Start or not Finish or (Finish - Start).Magnitude < 0.05 then return end
+        local Record
+        for _, T in ipairs(self.Tracers) do if not T.Active then Record = T; break end end
+        if not Record and #self.Tracers < 96 then
+            Record = {Glow = DrawingObject("Line", {Color = Red, Thickness = 7, ZIndex = 3}),
+                Core = DrawingObject("Line", {Color = White, Thickness = 2, ZIndex = 4})}
+            table.insert(self.Tracers, Record)
+        end
+        if not Record then
+            Record = self.Tracers[1]
+            for _, T in ipairs(self.Tracers) do if T.At < Record.At then Record = T end end
+        end
+        Record.Start = Start; Record.Finish = Finish; Record.At = os.clock(); Record.Active = true
+    end
+    function V:OnShot(Player, Tool, Muzzle, Rays)
+        if not self.Alive or Player ~= P then return end
+        if type(Rays) ~= "table" then return end
+        local Head = P.Character and P.Character:FindFirstChild("Head")
+        local Origin = typeof(Muzzle) == "Instance" and Muzzle:IsA("BasePart") and Muzzle.Position or Head and Head.Position
+        local Count = 0
+        for _, Row in pairs(Rays) do
+            if type(Row) == "table" then
+                Count = Count + 1; if Count > 16 then break end
+                local Finish = self:Point(Row[1])
+                local Start = self:Point(Row[4]) or Origin
+                if type(Row[4]) == "number" and type(Rays[Row[4]]) == "table" then Start = self:Point(Rays[Row[4]][1]) or Start end
+                self:AddTracer(Start, Finish)
+                self:AddCham(self:Zombie(Row[2]))
+            end
+        end
+        self:Refresh()
+    end
+    function V:OnHit()
+        if not self.Alive then return end
+        self.LastHit = os.clock(); self:Refresh()
+    end
+    function V:OnDamage(Amount)
+        if not self.Alive or not Finite(Amount) or Amount <= 0 then return end
+        self.RecentDamage = os.clock() - self.DamageAt < 0.15 and (self.RecentDamage or 0) + Amount or Amount
+        self.DamageAt = os.clock(); self:Refresh()
+    end
+    function V:HitDrawings()
+        if self.HitLines then return end
+        self.HitLines = {}
+        for I = 1, 4 do
+            self.HitLines[I] = {Glow = DrawingObject("Line", {Color = Red, Thickness = 6, ZIndex = 7}),
+                Core = DrawingObject("Line", {Color = White, Thickness = 2, ZIndex = 8})}
+        end
+        self.DamageText = DrawingObject("Text", {Color = White, Font = Drawing.Fonts.UI, Size = 20, Center = true, Outline = true, ZIndex = 8})
+    end
+    function V:Render()
+        if not self.Alive then return end
+        local Camera = W.CurrentCamera
+        local Now = os.clock()
+        for _, T in ipairs(self.Tracers) do
+            local Alpha = 1 - (Now - (T.At or -10)) / Duration("VisualTracerTime", 0.25)
+            local Visible = T.Active and Flags.VisualTracers and Camera and Alpha > 0
+            if Visible then
+                local X = Camera:WorldToViewportPoint(T.Start)
+                local Y = Camera:WorldToViewportPoint(T.Finish)
+                Visible = X.Z > 0 and Y.Z > 0
+                if Visible then
+                    T.Glow.From = Vector2.new(X.X, X.Y); T.Glow.To = Vector2.new(Y.X, Y.Y)
+                    T.Core.From = T.Glow.From; T.Core.To = T.Glow.To
+                    T.Glow.Transparency = Alpha * 0.45; T.Core.Transparency = Alpha
+                end
+            end
+            T.Glow.Visible = Visible == true; T.Core.Visible = Visible == true
+            if Alpha <= 0 or not Flags.VisualTracers then T.Active = false end
+        end
+        for Model, Record in pairs(self.Chams) do
+            local Alpha = (Now - Record.At) / Duration("VisualHitTime", 0.3)
+            if not Flags.VisualHitChams or not Model.Parent or Alpha >= 1 then
+                Destroy(Record.Object); self.Chams[Model] = nil
+            else Record.Object.FillTransparency = 0.2 + Alpha * 0.8; Record.Object.OutlineTransparency = Alpha end
+        end
+        if Flags.VisualHitIndicator then self:HitDrawings() end
+        if self.HitLines then
+            local Alpha = 1 - (Now - self.LastHit) / Duration("VisualHitTime", 0.3)
+            local Visible = Flags.VisualHitIndicator and Camera and Alpha > 0
+            for I, Lines in ipairs(self.HitLines) do
+                Lines.Glow.Visible = Visible == true; Lines.Core.Visible = Visible == true
+                if Visible then
+                    local SX = (I == 1 or I == 4) and -1 or 1
+                    local SY = I <= 2 and -1 or 1
+                    local X, Y = Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2
+                    local Offset = 7 + (1 - Alpha) * 5
+                    Lines.Glow.From = Vector2.new(X + SX * Offset, Y + SY * Offset)
+                    Lines.Glow.To = Vector2.new(X + SX * (Offset + 12), Y + SY * (Offset + 12))
+                    Lines.Core.From = Lines.Glow.From; Lines.Core.To = Lines.Glow.To
+                    Lines.Glow.Transparency = Alpha * 0.5; Lines.Core.Transparency = Alpha
+                end
+            end
+            local DamageAlpha = 1 - (Now - self.DamageAt) / 0.6
+            self.DamageText.Visible = Flags.VisualHitIndicator == true and Camera ~= nil and DamageAlpha > 0
+            if self.DamageText.Visible then
+                self.DamageText.Text = tostring(math.floor((self.RecentDamage or 0) + 0.5))
+                self.DamageText.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2 + 24 - (1 - DamageAlpha) * 14)
+                self.DamageText.Transparency = DamageAlpha
+            end
+        end
+    end
+    function V:Refresh()
+        local Need = Flags.VisualTracers or Flags.VisualHitChams or Flags.VisualHitIndicator
+        if Need and not self.Rendering then
+            self.Rendering = true
+            Run:BindToRenderStep(RenderName, Enum.RenderPriority.Last.Value + 3, function()
+                local OK, Error = pcall(self.Render, self)
+                if not OK then
+                    self:Destroy(); Window.SendNotification("Warning", "Visuals stopped: " .. tostring(Error), 5)
+                end
+            end)
+        elseif not Need and self.Rendering then
+            self:Render(); Run:UnbindFromRenderStep(RenderName); self.Rendering = false
+        end
+    end
+    function V:Destroy()
+        if not self.Alive then return end
+        self.Alive = false
+        Run:UnbindFromRenderStep(RenderName)
+        for _, C in ipairs(self.Connections) do C:Disconnect() end
+        for Item, Record in pairs(self.Callbacks) do if Item.Callback == Record.Owned then Item.Callback = Record.Previous end end
+        for _, D in ipairs(self.Drawings) do pcall(function() D:Remove() end) end
+        Destroy(self.Folder); self.Chams = {}; self.Tracers = {}
+    end
+    local Scripts = P:FindFirstChild("PlayerScripts")
+    local Manager = Scripts and Scripts:FindFirstChild("LocalVisualManager")
+    local Fire = Manager and Manager:FindFirstChild("LocalFireEvent")
+    if Fire then Connect(Fire.Event, function(...) V:OnShot(...) end) end
+    local Remotes = RS:FindFirstChild("RemoteEvents")
+    local Hit = Remotes and Remotes:FindFirstChild("RemoteHitmarker")
+    local Damage = Remotes and Remotes:FindFirstChild("ReturnServerDamage")
+    if Hit then Connect(Hit.OnClientEvent, function() V:OnHit() end) end
+    if Damage then Connect(Damage.OnClientEvent, function(Amount) V:OnDamage(Amount) end) end
+    for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator"}) do
+        local Item = Library.Items[Key]
+        if Item then
+            local Previous = Item.Callback
+            local Owned = function(Value) Previous(Value); if V.Alive then V:Refresh() end end
+            V.Callbacks[Item] = {Previous = Previous, Owned = Owned}; Item.Callback = Owned
+        end
+    end
+    V:Refresh()
+    return V
+end
