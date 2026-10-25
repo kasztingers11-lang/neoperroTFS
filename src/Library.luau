@@ -864,8 +864,8 @@ do
             Window.SelectedTab = Tab.CurrentTab
 
             for _, Render in pairs(Tab["Render"]) do
-                Render.Visible = true
                 local Info = Library.DrawingInfo[Render]
+                Render.Visible = not (Info and Info.ControlHidden)
                 if Info and not Info.Hitbox then
                     if Animate then Render.Transparency = 0 end
                     Utility.Fade(Render, Library.WindowVisible and Info.Alpha or 0, 0.14)
@@ -2627,6 +2627,7 @@ do
                 function Section:Dropdown(Options)
                     local Dropdown = {
                         TypeOf = "Dropdown",
+                        ControlVisible = true,
                         Axis = Section.ContentAxis,
                         List = Options.List or {""},
                         ListRender = {
@@ -2713,7 +2714,22 @@ do
                         Dropdown.Callback(Dropdown.Selected)
                         Library.Flags[Options.Flag] = Dropdown.Selected
                     end
+                    -- Dependent fields keep their reserved layout space and cannot receive
+                    -- pointer input while hidden, including after changing tabs.
+                    function Dropdown:SetVisible(State)
+                        Dropdown.ControlVisible = State
+                        if not State then Dropdown:ShowList(false) end
+                        for _, Object in ipairs({DropdownInline, DropdownOutline, DropdownGradient, DropdownTitle, DropdownSymbol, DropdownValue}) do
+                            local Info = Library.DrawingInfo[Object]
+                            if Info then Info.ControlHidden = not State end
+                            Object.Visible = State and Window.SelectedTab == Tab.CurrentTab
+                            if State and Info then
+                                Object.Transparency = Library.WindowVisible and Info.Alpha or 0
+                            end
+                        end
+                    end
                     function Dropdown:ShowList(State)
+                        State = State and Dropdown.ControlVisible ~= false
                         Dropdown.Show = State
                         DropdownSymbol.Text = State and "-" or "+"
                         for Index, Value in pairs(Dropdown.ListRender.Objects) do

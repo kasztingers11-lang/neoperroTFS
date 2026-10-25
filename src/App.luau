@@ -1,70 +1,56 @@
--- // Docs
-
+-- Main-tab design preview. Controls store UI state only.
+-- Weapon and upgrade names below are preview choices, pending inventory/shop integration.
 local LoadTime = tick()
 
 Library.CreateLoader("neoperro", Vector2.new(300, 300))
 local Window = Library.Window("neoperro | the final stand 2", Vector2.new(500, 620))
+local Main = Window:Tab("main")
 
+local GunMods = Main:Section("GUN MODS", "Left")
+GunMods:Toggle({Title = "wallbang", Flag = "GunWallbang"})
+GunMods:Toggle({Title = "rapid fire", Flag = "GunRapidFire"})
+GunMods:Toggle({Title = "infinite ammo", Flag = "GunInfiniteAmmo"})
+GunMods:Toggle({Title = "instant reload", Flag = "GunInstantReload"})
+GunMods:Toggle({Title = "infinite range", Flag = "GunInfiniteRange"})
 
--- // UI Main \\ --
-local Legit = Window:Tab("main")
-local Aimbot = Legit:Section("legit", "Left")
-Aimbot:Toggle({Title = "aimbot", Flag = "Aimlock"}):Keybind({Title = "Aiming", Flag = "Aiming", Key = Enum.UserInputType.MouseButton2, StateType = "Hold"})
-Aimbot:Toggle({Title = "visible check", Flag = "AimlockWallCheck"})
-Aimbot:Toggle({Title = "apply prediction", Flag = "AdjustBulletDrop"})
-Aimbot:Slider({Title = "smoothing [mouse]", Flag = "Smoothness", Symbol = "", Default = 0, Min = 0, Max = 20, Decimals = 1})
-Aimbot:Dropdown({Title = "hitbox priority", List = {"Head", "Body"}, Default = "Head", Flag = "AimlockHitbox"})
-Aimbot:Dropdown({Title = "mode", List = {"Camera", "Mouse"}, Default = "Camera", Flag = "AimbotMode"})
+local Farm = Main:Section("AUTOFARM", "Left")
+Farm:Toggle({Title = "auto shoot zombies", Flag = "FarmAutoShoot"})
+Farm:Toggle({Title = "distance checker", Flag = "FarmKeepDistance"})
+Farm:Slider({Title = "keep distance (studs)", Flag = "FarmDistance", Symbol = "", Default = 24, Min = 5, Max = 100, Decimals = 1})
+Farm:Toggle({Title = "show distance", Flag = "FarmShowDistance"})
+Farm:Toggle({Title = "show distance circle", Flag = "FarmShowCircle"})
+Farm:Toggle({Title = "avoid walls", Flag = "FarmAvoidWalls", State = true})
+Farm:Toggle({Title = "use sprint (Shift)", Flag = "FarmUseSprint", State = true})
 
-local BulletRedirection = Legit:Section("bullet redirection", "Left")
-BulletRedirection:Toggle({Title = "silent aim", Flag = "SilentAim", Type = "Dangerous"})
-BulletRedirection:Toggle({Title = "apply prediction", Flag = "SilentAimBulletDrop"})
-BulletRedirection:Toggle({Title = "custom prediction", Flag = "CustomPrediction"})
-BulletRedirection:Slider({Title = "value", Flag = "CustomValue", Symbol = "", Default = 75, Min = 0, Max = 99, Decimals = 1})
-BulletRedirection:Toggle({Title = "visible check", Flag = "SilentAimWallCheck"})
-BulletRedirection:Slider({Title = "randomization", Flag = "Randomization", Symbol = "%", Default = 0, Min = 0, Max = 100, Decimals = 1})
-BulletRedirection:Dropdown({Title = "hitbox priority", Flag = "SilentAimHitbox", List = {"Head", "Body"}, Default = "Head"})
+local Upgrade = Main:Section("AUTO UPGRADE", "Right")
+Upgrade:Toggle({Title = "enabled", Flag = "UpgradeEnabled"})
+local Priority, UpgradeMode, UpgradeHint
+local function RefreshUpgradeControls(Weapon)
+    if Priority then Priority:SetVisible(Weapon ~= "Select weapon") end
+    if UpgradeMode then UpgradeMode:SetVisible(Weapon ~= "Select weapon") end
+    if UpgradeHint then
+        UpgradeHint:Set(Weapon == "Select weapon" and "Select a weapon to set priorities." or
+            Library.Flags.UpgradeMode == "All upgrades" and "Priority first, then max the weapon." or
+            "Stop when selected upgrade is maxed.")
+    end
+end
+Upgrade:Dropdown({Title = "weapon", Flag = "UpgradeWeapon", List = {"Select weapon", "Pistol"}, Default = "Pistol", Callback = RefreshUpgradeControls})
+Priority = Upgrade:Dropdown({Title = "prioritize upgrade", Flag = "UpgradePriority", List = {"Damage", "Fire rate", "Reload speed", "Magazine size", "Range"}, Default = "Damage"})
+UpgradeMode = Upgrade:Dropdown({Title = "upgrade mode", Flag = "UpgradeMode", List = {"Selected upgrade only", "All upgrades"}, Default = "Selected upgrade only"})
+Upgrade:Toggle({Title = "go to shop if needed", Flag = "UpgradeShopFallback", State = true})
+Upgrade:Toggle({Title = "completion notifications", Flag = "UpgradeNotify", State = true})
+UpgradeHint = Upgrade:Label("Stop when selected upgrade is maxed.")
+UpgradeMode.Callback = function(Mode)
+    -- The inherited dropdown calls its callback before updating Library.Flags.
+    UpgradeHint:Set(Library.Flags.UpgradeWeapon == "Select weapon" and "Select a weapon to set priorities." or
+        Mode == "All upgrades" and "Priority first, then max the weapon." or "Stop when selected upgrade is maxed.")
+end
 
-local TriggerBot = Legit:Section("trigger bot", "Left")
-TriggerBot:Toggle({Title = "enabled", Flag = "TriggerBot"}):Keybind({Title = "Trigger Bot", Flag = "TriggerBotBind", Key = Enum.KeyCode.M, StateType = "Toggle"})
-TriggerBot:Slider({Title = "delay", Flag = "TBDelay", Symbol = "m", Default = 0, Min = 0, Max = 5, Decimals = 1})
+local Camera = Main:Section("THIRD PERSON", "Right")
+Camera:Toggle({Title = "enabled", Flag = "CameraThirdPerson"})
+Camera:Slider({Title = "camera distance (studs)", Flag = "CameraDistance", Symbol = "", Default = 10, Min = 4, Max = 24, Decimals = 1})
 
-local FOV = Legit:Section("drawing field of view", "Right")
-FOV:Toggle({Title = "aimbot fov", Flag = "AimlockFOVToggle"}):Colorpicker({Color = Library.Theme.Accent[2], Flag = "AimlockFOVColor"})
-FOV:Slider({Title = "size", Flag = "AimlockFOVSize", Symbol = "", Default = 100, Min = 10, Max = 250, Decimals = 1})
-FOV:Toggle({Title = "silent aim fov", Flag = "SilentAimFOVToggle"}):Colorpicker({Color = Color3.fromHex("#980f20"), Flag = "SilentAimFOVColor"})
-FOV:Slider({Title = "size", Flag = "SilentAimFOVSize", Symbol = "", Default = 100, Min = 10, Max = 250, Decimals = 1})
-FOV:Dropdown({Title = "style", List = {"Outline", "Hot"}, Default = "Outline", Flag = "FOVStyle"})
-FOV:Dropdown({Title = "position", List = {"Mouse", "Center"}, Default = "Mouse", Flag = "FOVPosition"})
-
-local Blatant = Window:Tab("rage")
-local Movement = Blatant:Section("movement", "Left")
-Movement:Toggle({Title = "speed", Flag = "SpeedToggle", Type = "Dangerous"}):Keybind({Title = "Speed", Flag = "SpeedBind", Key = Enum.KeyCode.V, StateType = "Toggle"})
-Movement:Slider({Title = "move rate", Flag = "MoveRate", Symbol = "", Default = 24, Min = 1, Max = 32, Decimals = 1})
-
-
-Movement:Toggle({Title = "bunny hop", Flag = "BunnyHop", Type = "Dangerous"})
-Movement:Slider({Title = "hop speed", Flag = "HopSpeed", Symbol = "", Default = 24, Min = 1, Max = 32, Decimals = 1})
-
-Movement:Toggle({Title = "flight", Flag = "Fly", Type = "Dangerous"}):Keybind({Title = "Fly", Flag = "FlyBind", Key = Enum.KeyCode.F, StateType = "Toggle"})
-Movement:Slider({Title = "flight speed", Flag = "FlyRate", Symbol = "", Default = 24, Min = 1, Max = 100, Decimals = 1})
-
-local CharacterModify = Blatant:Section("Local", "Left")
-CharacterModify:Toggle({Title = "no jump cooldown", Flag = "NoJumpCooldown"})
-CharacterModify:Toggle({Title = "anti stomp", Flag = "AntiStomp", Type = "Dangerous"})
-CharacterModify:Toggle({Title = "anti bag", Flag = "AntiBag"})
-
-
-local HvH = Blatant:Section("hack vs hack", "Left")
-HvH:Toggle({Title = "target strafe", Flag = "TargetStrafe", Type = "Dangerous"}):Keybind({Title = "Target Strafe", Flag = "TSBind", Key = Enum.KeyCode.Space, StateType = "Toggle"})
-HvH:Toggle({Title = "display distance", Flag = "TSVisual"}):Colorpicker({Color = Color3.fromHex("#980f20"), Flag = "TSVColor"})
-HvH:Slider({Title = "distance", Flag = "TSDistance", Symbol = "", Default = 5, Min = 1, Max = 60, Decimals = 1})
-HvH:Slider({Title = "strafe speed", Flag = "TSSpeed", Symbol = "", Default = 5, Min = 1, Max = 60, Decimals = 1})
-
-local GunMods = Blatant:Section("gun mod", "Right")
-GunMods:Toggle({Title = "no recoil", Flag = "NoRecoil"})
-
-
+-- Keep the existing interface controls and profiles available.
 local Settings = Window:Tab("settings")
 local Menu = Settings:Section("interface", "Left")
 Library.MenuKeyButton = Menu:Button({Title = "show / hide UI: RightShift", Callback = function()
@@ -74,8 +60,9 @@ Menu:Button({Title = "reset UI bind to RightShift", Callback = function()
     Library.CapturingMenuKey = false
     Library:SetMenuKey(Enum.KeyCode.RightShift)
 end})
-Menu:Toggle({Title = "show keybind list", Flag = "ShowBinds", State = true, Callback = function(Value) Library:SetBindListVisible(Value) end})
+Menu:Toggle({Title = "show keybind list", Flag = "ShowBinds", State = false, Callback = function(Value) Library:SetBindListVisible(Value) end})
 Menu:Button({Title = "hide UI (use your bind to reopen)", Callback = function() Library:ChangeVisible(false) end})
+
 local Profile = Settings:Section("profiles", "Right")
 Library.SaveButton = Profile:Button({Title = "save profile", Callback = function()
     local OK, Error = pcall(Library.Utility.SaveConfig, "default")
@@ -86,8 +73,9 @@ Library.LoadButton = Profile:Button({Title = "load profile", Callback = function
     Window.SendNotification(OK and "Normal" or "Warning", OK and "Profile loaded" or tostring(Error), 3)
 end})
 Profile:Button({Title = "unload UI", Callback = Library.SelfDestruct})
-Window:SwitchTab(Legit)
+
+Window:SwitchTab(Main)
 Library.WindowInstance = Window
 Library.LoadTime = math.floor((tick() - LoadTime) * 1000)
-Window.SendNotification("Normal", "neoperro UI loaded | RightShift to toggle", 3)
+Window.SendNotification("Normal", "Main tab preview loaded | RightShift to toggle", 3)
 return Library

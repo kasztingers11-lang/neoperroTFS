@@ -2,7 +2,16 @@
 
 The original [Abyss Drawing layout](https://github.com/Eazvy/UILibs/blob/main/Librarys/Abyss/Example), with clean text, black surfaces and a static dark-red glow beneath section titles and the selected tab. Subtle motion preserves the rectangular layout; there is no color cycling.
 
-This remains a **UI-only demo**. Main/rage controls manage menu state; gameplay features are not implemented.
+This is the **Main tab design preview**. Controls save menu state; gameplay behavior and feasibility checks come after design approval. The old main/rage demo controls and rage tab have been removed.
+
+## Main tab
+
+- **GUN MODS:** independent checkboxes for wallbang, rapid fire, infinite ammo, instant reload and infinite range.
+- **AUTOFARM:** auto shoot zombies, distance checker, a 5–100 stud distance slider, distance text/circle toggles, wall avoidance and Shift sprint preferences.
+- **AUTO UPGRADE:** enabled, weapon, priority upgrade, selected-only/all-upgrades mode, shop fallback and completion alerts. Clearing the weapon choice hides the dependent priority/mode fields; selecting a weapon restores them. The mode hint explains whether to stop after one upgrade or max the weapon.
+- **THIRD PERSON:** enabled and a 4–24 stud camera distance slider.
+
+Pistol and the upgrade categories are preview choices. Inventory discovery, actual shop upgrades, completion notifications, shooting, movement and camera behavior have not been wired or tested. The planned range behavior shares the infinite-range setting with auto shoot. Shop access methods and gun-mod compatibility remain unverified.
 
 ## Run and controls
 
@@ -11,7 +20,7 @@ Run `loader.luau` in Real, or execute `dist/neoperroTFS.luau`.
 - **RightShift** hides and reopens the UI by default.
 - In **settings → interface**, click **show / hide UI**, then press your new key. Escape cancels capture. The capture key does not also toggle the menu.
 - Use **reset UI bind to RightShift** to restore the default.
-- **show keybind list** controls the floating panel. The panel has separate, padded rows and resizes when active bindings change. It hides with the menu.
+- **show keybind list** controls the floating panel, initially hidden because this preview has no feature keybinds. The panel has separate, padded rows and resizes when active bindings change. It hides with the menu.
 - Drag the menu header or keybind panel header to move them.
 - **save profile / load profile** preserve controls, the UI shortcut, and control keys with their Hold/Toggle/Always modes.
 - **unload UI** removes the UI and disconnects its event handlers.
