@@ -1,6 +1,6 @@
 # neoperroTFS
 
-The original [Abyss Drawing layout](https://github.com/Eazvy/UILibs/blob/main/Librarys/Abyss/Example), with clean text, black surfaces and a static dark-red glow beneath section titles and the selected tab. No animations or color cycling.
+The original [Abyss Drawing layout](https://github.com/Eazvy/UILibs/blob/main/Librarys/Abyss/Example), with clean text, black surfaces and a static dark-red glow beneath section titles and the selected tab. Subtle motion preserves the rectangular layout; there is no color cycling.
 
 This remains a **UI-only demo**. Main/rage controls manage menu state; gameplay features are not implemented.
 
@@ -30,7 +30,9 @@ The supplied image is unchanged: 1254 × 1254, 220,436 bytes. SHA-256: `1e4d00f4
 
 `src/Library.luau` contains the adapted Abyss renderer; `src/App.luau` declares the menu. Run `node build.mjs` to regenerate `dist/neoperroTFS.luau` and the small generated UI textures. No npm dependencies are required.
 
-This build uses four shared engine event connections instead of the earlier 249. It has no RenderStepped/Stepped UI callbacks, animated accent broadcasts, custom cursor loop or clock loop. Dragging and keybind-panel layout update in response to input or state changes. The glow is a static texture. These are structural reductions, not a measured FPS claim.
+The UI retains four shared engine event connections. A single extra render connection exists only while transitions are active and disconnects when idle. There are no animated accent broadcasts, custom cursor loops or clock loops. The glow remains a static texture. These are structural reductions, not a measured FPS claim.
+
+Motion is restrained: 120–160 ms visibility fades, 100 ms hover highlights, a 120 ms tab underline slide with a 140 ms content fade, keybind-row fades and smooth panel contraction, plus 75 ms drag smoothing. Transitions reverse from their current values when interrupted. No bounce, scaling or layout rearrangement is used.
 
 Profiles are stored in `neoperroTFS/Configs/default.json`. Drawing and HTTP support are required; filesystem APIs are needed for profiles. This is not a Roblox Studio LocalScript. See `VALIDATION.md` for tested behavior and limits.
 

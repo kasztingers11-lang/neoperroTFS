@@ -1,12 +1,12 @@
 # Validation — 2026-10-25
 
-- Final bundled Luau: zero checker errors and warnings (with the live-reload STATE prelude).
-- Loaded in Real and inspected screenshots of main/settings, the hidden UI, and a two-entry keybind panel.
-- Zero watermark drawings; no per-frame UI callbacks; four tracked engine connections after reload.
-- Menu handler tests: hide/reopen, capture a different key without hiding immediately, cancel with Escape, save/load the menu shortcut.
-- Native RightShift input successfully hid the menu. Further native-key tests were blocked when Roblox lost focus; those are not counted as passes.
-- Keybind panel: two active entries fit inside its background; changing modes reduced the row count from two to one to zero.
-- Profile round-trip restored a control key and Always mode, then test defaults were restored and the temporary profile deleted.
-- Previous controls remain UI-only. No gameplay features were implemented or tested.
-
-This does not claim exhaustive physical mouse/keyboard testing of every inherited widget, a measured FPS improvement, or compatibility with every executor.
+- Animated bundle loaded successfully through Real in the lobby and after entering a match.
+- Screenshots confirmed the UI visible, hidden, and visible again after animated show/hide.
+- User confirmed the UI is visible and physical RightShift hides and reopens it.
+- Repeated interrupted hide/show transitions settled with WindowVisible=true and no active animation connection.
+- Tab switching completed without a runtime error; animation connection returned to idle.
+- No console errors or warnings during the lobby checks.
+- Earlier property checks covered hover interpolation, drag drift, and keybind panel growth/contraction. These are not exhaustive physical interaction tests.
+- Entering a different place cleared the script state; reloading restored the UI. Automatic persistence across teleports is not implemented.
+- The earlier missing-overlay report did not reproduce after reconnecting; its original cause is not proven.
+- Controls remain UI-only. No gameplay features were implemented or tested; no FPS improvement is claimed.
