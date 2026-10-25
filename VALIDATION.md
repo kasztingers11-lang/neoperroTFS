@@ -2,7 +2,15 @@
 
 
 
-## Current Ready, refill priority and target marker repair
+## Current ESC menu settings repair
+
+- Visible setting clicks and explicit key capture are routed even when the native ESC menu focuses a CoreGui textbox. The menu shortcut works there; ordinary textbox typing remains reserved for the textbox. Right-drag camera capture and mouse-lock restoration no longer fight the native pause-menu cursor.
+- Gameplay automation pauses while GuiService.MenuIsOpen is true, including background mode, while preference controls remain editable. Three production regressions cover ESC-menu pointer routing/menu shortcut, key capture, and gameplay pause.
+- Revised build loaded with preferences restored and no automation failure. Native input probes were ignored because Roblox lost focus; a later observation showed the native ESC menu and the script menu open. Focused native click acceptance was not claimed from that observation.
+- **85 behavioral checks**, four packaging checks, local Luau compilation and analysis pass. The full plain-text distribution is `dist/neoperroTFS.luau`; it is the FlowAuth upload artifact, not the GitHub downloader. No obfuscation applied.
+
+
+## Previous Ready, refill priority and target marker repair
 
 - Backup switching for a completely dry equipped gun now explicitly excludes charge weapons unsupported by auto shoot and ranks supported loaded backups by rounds already loaded before reserve count. Reserve-only backups can reload natively. If every gun is dry, no ammunition is invented; resupply remains the fallback. Added a production regression for loaded-round priority and charge exclusion.
 

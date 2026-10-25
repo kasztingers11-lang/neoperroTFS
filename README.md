@@ -26,7 +26,7 @@ The hit marker has no avatar/screen-center fallback when a recent contact is unk
 
 The opt-in background mode uses the native GunScript firing latch instead of OS mouse/keyboard commands. This path is **experimental: background damage was not verified live**. Background movement does not send Shift, so sprint requires foreground focus. Roblox may throttle rendering while unfocused/minimized. The user chose to finish without another live firing check.
 
-An open menu, text editing or key capture still pauses farming. The menu releases the cursor; hold right mouse outside the UI to rotate the native camera. Manual mouse/Shift input is not deliberately taken over. Unload removes owned changes and listeners; a pending OS release can retain one temporary focus listener until release is possible.
+An open neoperro menu, native Roblox ESC menu, text editing or key capture pauses farming. RightShift and setting clicks/key capture remain available inside the native ESC menu, including when CoreGui focuses its search textbox. The cursor stays free there. The menu releases the cursor; hold right mouse outside the UI to rotate the native camera. Manual mouse/Shift input is not deliberately taken over. Unload removes owned changes and listeners; a pending OS release can retain one temporary focus listener until release is possible.
 
 ## Visuals
 
@@ -48,7 +48,7 @@ Unassigned keys never match mouse `Unknown` key codes. Feature shortcuts run onl
 
 `src/Library.luau` renders the UI; `Features` manages gun changes; `Automation` coordinates gameplay; `Navigation`, `AmmoAdapter` and `ShopAdapter` wrap native movement, refill and shop interactions; `Visuals` owns shot effects. Native closure layouts are guarded against the inspected game v312. Native firing packets are not rewritten.
 
-Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for four packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 82 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
+Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for four packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 85 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
 
 The final bundle passed local Luau compilation and local analysis with no diagnostics. Aim follows every rendered frame. Movement decisions run at up to 20 Hz, live-head raycasts reuse native ignore-list parameters for 0.25 seconds, inventory stays throttled and transactions are serialized. Empty guns reload/switch without needless camera locking. Overlay deadlines cap at 144 Hz without catch-up bursts; shot-contact scans cap at four rays per event and 30 events/second. Inactive tracer handles receive no per-frame property writes. Cadence is tested at simulated 60/144/240 FPS; this is not a measured 240 FPS performance claim. UI input uses five shared engine signals and a temporary animation connection while transitions run. See [VALIDATION.md](VALIDATION.md) for evidence and [ROADMAP.md](ROADMAP.md) for game-based proposals.
 
@@ -61,3 +61,7 @@ The final bundle passed local Luau compilation and local analysis with no diagno
 Unchanged: 1254 × 1254, 220,436 bytes, SHA-256 `1e4d00f434d682b47f9f5f53e07890435f5f018610417e384c5f24db808e23c1`. The standalone bundle embeds those exact bytes, including the original black margins. The build rejects a different checksum.
 
 The library derives from Eazvy/UILibs' Abyss example; original authors retain attribution.
+
+## FlowAuth upload
+
+Upload `dist/neoperroTFS.luau` as the full unobfuscated script. It includes all source modules and exact image assets; `loader.luau` is only the GitHub downloader. No obfuscation was applied.

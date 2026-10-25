@@ -5,6 +5,7 @@ local Secure = setmetatable({}, {
     end
 })
 local UserInput = Secure.UserInputService
+local GuiService = Secure.GuiService
 local CoreGui = Secure.CoreGui
 local Players = Secure.Players
 local LocalPlayer = Players.LocalPlayer
@@ -510,7 +511,7 @@ do
                 Run:BindToRenderStep("NeoperroMenuMouse", Enum.RenderPriority.Last.Value + 2, function()
                     if not Library.Destroyed and Library.WindowVisible and isrbxactive()
                         and (not Library.Automation or Library.Automation.WindowFocused ~= false) then
-                        local Right = UserInput:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+                        local Right = not GuiService.MenuIsOpen and UserInput:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
                         if not Right then
                             Library.MenuCameraDragging = false
                         elseif not Library.MenuCameraDragging then
@@ -529,7 +530,7 @@ do
         elseif Library.MenuMouseBound then
             Run:UnbindFromRenderStep("NeoperroMenuMouse")
             Library.MenuMouseBound = false
-            if UserInput.MouseBehavior == Enum.MouseBehavior.Default and Library.MenuMouseOriginal then
+            if not GuiService.MenuIsOpen and UserInput.MouseBehavior == Enum.MouseBehavior.Default and Library.MenuMouseOriginal then
                 UserInput.MouseBehavior = Library.MenuMouseOriginal
             end
             Library.MenuMouseOriginal = nil
@@ -604,7 +605,7 @@ do
             elseif Library.MenuKeyButton then Library.MenuKeyButton:SetText("SHOW / HIDE UI: " .. Library.MenuKey.Name) end
             return true
         end
-        if UserInput:GetFocusedTextBox() then return true end
+        local TextBox = UserInput:GetFocusedTextBox()
         -- Route bind UI before ordinary controls and gameplay shortcuts. One event
         -- has one owner, even when a popup overlaps another control.
         for _, Bind in ipairs(Library.Bindings) do
@@ -613,10 +614,15 @@ do
                 return true
             end
         end
-        if Input.KeyCode == Library.MenuKey then
+        if Input.KeyCode == Library.MenuKey and (not TextBox or GuiService.MenuIsOpen) then
             Library:ChangeVisible(not Library.WindowVisible)
             return true
         end
+        local Pointer = Input.UserInputType == Enum.UserInputType.MouseButton1
+            or Input.UserInputType == Enum.UserInputType.MouseButton2 or Input.UserInputType == Enum.UserInputType.MouseButton3
+        -- CoreGui can focus a textbox in the Escape menu. It owns typing, but
+        -- must not swallow pointer edits to our visible controls.
+        if TextBox and not Pointer then return true end
         if Library.WindowVisible then
             for _, Bind in ipairs(Library.Bindings) do
                 if Bind.Dropped and Bind.HandleMenuInput and Bind:HandleMenuInput(Input) then return true end

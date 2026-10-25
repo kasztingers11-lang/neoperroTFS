@@ -3,6 +3,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     local P: any = game:GetService("Players").LocalPlayer
     local Run = game:GetService("RunService")
     local Input = game:GetService("UserInputService")
+    local GuiService = game:GetService("GuiService")
     local Paths = game:GetService("PathfindingService")
     local RS: any = game:GetService("ReplicatedStorage")
     local W: any = workspace
@@ -57,7 +58,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:Focused()
         return (self:NativeFocused() or Flags.FarmBackground == true) and Input:GetFocusedTextBox() == nil
-            and not Library.WindowVisible and not Library.CapturingMenuKey
+            and not Library.WindowVisible and not Library.CapturingMenuKey and not GuiService.MenuIsOpen
     end
     function A:ReleaseMouse()
         if self.MouseOwned then

@@ -154,7 +154,7 @@ local function setup(native)
             GetWaypoints=function(self) return {{Position=root.Position},{Position=self.To,Action="Walk"}} end}
     end
     local services={Players={LocalPlayer=p},RunService=run,UserInputService=input,
-        PathfindingService=paths,ReplicatedStorage=rs,HttpService={JSONDecode=function() error("bad JSON") end},Lighting={GetMinutesAfterMidnight=function() return 390 end}}
+        GuiService={MenuIsOpen=false},PathfindingService=paths,ReplicatedStorage=rs,HttpService={JSONDecode=function() error("bad JSON") end},Lighting={GetMinutesAfterMidnight=function() return 390 end}}
     game={GetService=function(_,name) return assert(services[name],name) end}; workspace=world
     local flags={UpgradeWeapon="Select weapon",UpgradePriority="Select upgrade",UpgradeMode="Selected upgrade only",
         FarmDistance=24,FarmAvoidWalls=true,FarmUseSprint=true,CameraDistance=10,UpgradeNotify=true,UpgradeShopFallback=true}
@@ -994,7 +994,8 @@ local function bindingFixture()
     for _,name in ipairs({"MouseButton1","MouseButton2","MouseButton3","Keyboard"}) do U[name]=item(name,U) end
     e.typeof=function(v) return type(v)=="table" and v.EnumType and "EnumItem" or type(v) end
     e.isrbxactive=function() return true end
-    e.UserInput={GetFocusedTextBox=function() return nil end}
+    e.GuiService={MenuIsOpen=false}
+    e.UserInput={GetFocusedTextBox=function() return e.TextBox end}
     e.Library={WindowVisible=true,MenuKey=K.RightShift,Bindings={},Flags={},Keys={Shortened={}},Theme={Text="white",TextInactive="gray",Accent={"red"}}}
     e.Library.ChangeVisible=function(self,v) self.WindowVisible=v end
     e.Toggle={Toggled=true}
@@ -1052,6 +1053,22 @@ test("Escape cancels capture and menu key cannot be accidentally assigned",funct
     local e=bindingFixture();e.Keybind.Binding=true
     e:Dispatch(e:Input("Keyboard","RightShift"));eq(e.Keybind.Binding,true);eq(e.Library.WindowVisible,true)
     e:Dispatch(e:Input("Keyboard","Escape"));eq(e.Keybind.Binding,false);eq(e.Keybind.Key,e.Enum.KeyCode.Unknown);eq(e.Callbacks,0)
+end)
+
+test("Escape menu textbox does not swallow setting clicks or the menu shortcut",function()
+    local e=bindingFixture();e.TextBox={};e.GuiService.MenuIsOpen=true
+    eq(e.Library.HandleMenuInput(e:Input("MouseButton1")),false)
+    e:Dispatch(e:Input("Keyboard","RightShift"));eq(e.Library.WindowVisible,false)
+    eq(e.Library.HandleMenuInput(e:Input("Keyboard","F7")),true)
+end)
+test("feature key capture remains available inside Escape menu",function()
+    local e=bindingFixture();e.TextBox={};e.GuiService.MenuIsOpen=true;e.Keybind.Binding=true
+    e:Dispatch(e:Input("Keyboard","F7"));eq(e.Keybind.Key,e.Enum.KeyCode.F7);eq(e.Keybind.Binding,false)
+end)
+test("native Escape menu pauses gameplay even when background mode is enabled",function()
+    local c=setup();c.Lib.Flags.FarmBackground=true
+    game:GetService("GuiService").MenuIsOpen=true;eq(c.A:Focused(),false)
+    game:GetService("GuiService").MenuIsOpen=false;eq(c.A:Focused(),true)
 end)
 
 print(string.format("%d passed, %d failed",passed,failed))
