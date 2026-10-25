@@ -102,9 +102,6 @@ Library.BaseAccent = Library.Theme.Accent[1]
 Library.DrawingInfo = {}
 Library.NextFlag = 0
 Library.Bindings = {}
-Library.Motion = {}
-Library.DragGroups = {}
-Library.MotionConnection = nil
 do
     Utility.AddInstance = function(NewInstance, Properties)
         local NewInstance = Instance.new(NewInstance)
@@ -131,7 +128,6 @@ do
         for Index = #Location, 1, -1 do
             if Location[Index][1] == Object then
                 table.remove(Location, Index)
-                Library.Motion[Object] = nil
                 Library.DrawingInfo[Object] = nil
                 pcall(function() Object:Remove() end)
                 break
@@ -172,74 +168,6 @@ do
         table.insert(Handlers, Handler)
         return Handler
     end
-    -- One short-lived render connection, shared by all active transitions.
-    Utility.Tween = function(Object, Property, Target, Duration, Completed, Updated)
-        if Library.Destroyed then return end
-        local Properties = Library.Motion[Object]
-        local Existing = Properties and Properties[Property]
-        if Existing and Existing.Target == Target then return end
-        if Object[Property] == Target then
-            if Properties then Properties[Property] = nil end
-            if Completed then Completed() end
-            return
-        end
-        Properties = Properties or {}
-        Library.Motion[Object] = Properties
-        Properties[Property] = {From = Object[Property], Target = Target, Started = os.clock(), Duration = Duration or 0.12, Completed = Completed, Updated = Updated}
-        if Library.MotionConnection then return end
-        Library.MotionConnection = game:GetService("RunService").RenderStepped:Connect(function()
-            local Now = os.clock()
-            for Item, Tracks in pairs(Library.Motion) do
-                for Key, Track in pairs(Tracks) do
-                    local Progress = math.clamp((Now - Track.Started) / Track.Duration, 0, 1)
-                    local Alpha = 1 - (1 - Progress)^3
-                    local Value = type(Track.From) == "number" and Track.From + (Track.Target - Track.From) * Alpha or Track.From:Lerp(Track.Target, Alpha)
-                    Item[Key] = Progress == 1 and Track.Target or Value
-                    if Track.Updated then Track.Updated(Item[Key]) end
-                    if Progress == 1 and Tracks[Key] == Track then
-                        Tracks[Key] = nil
-                        if Track.Completed then Track.Completed() end
-                    end
-                end
-                if next(Tracks) == nil then Library.Motion[Item] = nil end
-            end
-            if next(Library.Motion) == nil and Library.MotionConnection then
-                Library.MotionConnection:Disconnect()
-                Library.MotionConnection = nil
-            end
-        end)
-    end
-    Utility.Fade = function(Object, Alpha, Duration, Completed)
-        local Info = Library.DrawingInfo[Object]
-        if not Info or Info.Hitbox then return end
-        Utility.Tween(Object, "Transparency", Alpha, Duration, Completed)
-    end
-    Utility.Hover = function(Object, Hitbox)
-        Utility.AddConnection("InputChanged", function(Input)
-            if Input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-            Utility.Tween(Object, "Color", Utility.OnMouse(Hitbox or Object) and Library.Theme.Accent[1] or Library.Theme.Inline, 0.1)
-        end)
-    end
-    Utility.MoveGroup = function(List, Delta)
-        local Group = Library.DragGroups[List]
-        if not Group then
-            Group = {Position = Vector2.zero, Target = Vector2.zero, Applied = Vector2.zero}
-            Library.DragGroups[List] = Group
-        end
-        Group.Target += Delta
-        Utility.Tween(Group, "Position", Group.Target, 0.075, nil, function(Position)
-            local Step = Position - Group.Applied
-            Group.Applied = Position
-            for _, Entry in ipairs(List) do
-                local Object = Entry[1]
-                if Library.DrawingInfo[Object] then
-                    Object.Position += Step
-                    local Track = Library.Motion[Object] and Library.Motion[Object].Position
-                    if Track then Track.From += Step; Track.Target += Step end
-                end
-            end
-        end)
-    end
     Utility.Round = function(Num, Float)
         local Bracket = 1 / Float;
         return math.floor(Num * Bracket) / Bracket;
@@ -269,7 +197,7 @@ do
         else
             Location[#Location + 1] = {Instance}
         end
-        Library.DrawingInfo[Instance] = {Type = InstanceType, Alpha = Properties.Transparency or 1, InitialVisible = Properties.Visible == true, Hitbox = Properties.Color == Library.Theme.Hitbox}
+        Library.DrawingInfo[Instance] = {Type = InstanceType, Alpha = Properties.Transparency or 1, InitialVisible = Properties.Visible == true}
         return Instance
     end
     Utility.OnMouse = function(Instance): boolean
@@ -299,7 +227,7 @@ do
             local Mouse = UserInput:GetMouseLocation()
             local Delta = Mouse - LastMouse
             LastMouse = Mouse
-            Utility.MoveGroup(List, Delta)
+            for _, Entry in ipairs(List) do Entry[1].Position += Delta end
         end)
     end
     Utility.MiddlePos = function(Instance)
@@ -516,16 +444,16 @@ end
 do
     function Library:ChangeVisible(State)
         Library.WindowVisible = State
+        for _, Entry in ipairs(Library.Keybind) do Entry[1].Visible = State and Library.BindListVisible and Library.DrawingInfo[Entry[1]].InitialVisible end
         UserInput.MouseIconEnabled = true
         if not State and Library.WindowInstance then Library.WindowInstance:ClosePopups() end
         for _, Entry in ipairs(Library.Drawings) do
             local Object = Entry[1]
             local Info = Library.DrawingInfo[Object]
-            if Info and not Info.Hitbox then
-                Utility.Fade(Object, State and Info.Alpha or 0, State and 0.16 or 0.12)
+            if Info and (Entry[2] or Object.Color ~= Library.Theme.Hitbox) then
+                Object.Transparency = State and Info.Alpha or 0
             end
         end
-        Library:SetBindListVisible(Library.BindListVisible)
     end
     function Library:UpdateTheme(Config)
         for _, Key in ipairs({"Accent", "Outline", "Inline", "LightContrast", "DarkContrast", "Text", "TextInactive"}) do
@@ -539,9 +467,6 @@ do
     function Library.SelfDestruct()
         if Library.Destroyed then return end
         Library.Destroyed = true
-        if Library.MotionConnection then Library.MotionConnection:Disconnect(); Library.MotionConnection = nil end
-        table.clear(Library.Motion)
-        table.clear(Library.DragGroups)
         UserInput.MouseIconEnabled = OriginalMouseIcon
         for _, Connection in ipairs(Library.Connections) do Connection:Disconnect() end
         for Object in pairs(Library.DrawingInfo) do pcall(function() Object:Remove() end) end
@@ -585,20 +510,7 @@ do
     Library:SetMenuKey(Enum.KeyCode.RightShift)
     function Library:SetBindListVisible(State)
         Library.BindListVisible = State
-        local Show = State and Library.WindowVisible
-        for _, Entry in ipairs(Library.Keybind) do
-            local Object = Entry[1]
-            local Info = Library.DrawingInfo[Object]
-            if Info and Info.InitialVisible then
-                if Show then
-                    if not Object.Visible then Object.Transparency = 0 end
-                    Object.Visible = true
-                end
-                Utility.Fade(Object, Show and Info.Alpha or 0, 0.12, function()
-                    if not (Library.BindListVisible and Library.WindowVisible) then Object.Visible = false end
-                end)
-            end
-        end
+        for _, Entry in ipairs(Library.Keybind) do Entry[1].Visible = State and Library.WindowVisible and Library.DrawingInfo[Entry[1]].InitialVisible end
     end
     Library.BindListVisible = true
     function Library.Window(Title, Size)
@@ -687,27 +599,16 @@ do
                         Rows[Index] = Utility.AddDrawing("Text", {Text = "", Font = Library.Theme.Font, Size = Library.Theme.TextSize, Color = Library.Theme.Text, Visible = true, ZIndex = 2}, Library.Keybind)
                     end
                     local Row = Rows[Index]
-                    local Changed = Row.Text ~= Label
                     Row.Text = Label
                     Row.Position = WindowOutline.Position + Vector2.new(6, 23 + (Index - 1) * 17)
                     Row.Visible = Library.WindowVisible and Library.BindListVisible
-                    if Changed and Row.Visible then Row.Transparency = 0 end
-                    Utility.Fade(Row, Row.Visible and 1 or 0, 0.14)
                     Width = math.max(Width, Row.TextBounds.X + 12)
                 end
                 local Height = #Active == 0 and 22 or 27 + #Active * 17
-                local TargetSize = Vector2.new(Width, Height)
-                local Growing = Height > WindowOutline.Size.Y or Width > WindowOutline.Size.X
-                local function Resize(Object, Target)
-                    if Growing then
-                        if Library.Motion[Object] then Library.Motion[Object].Size = nil end
-                        Object.Size = Target
-                    else Utility.Tween(Object, "Size", Target, 0.12) end
-                end
-                Resize(WindowOutline, TargetSize)
-                Resize(WindowOutlineBorder, TargetSize - Vector2.new(2, 2))
-                Resize(WindowFrame, TargetSize - Vector2.new(4, 4))
-                Resize(WindowImage, TargetSize - Vector2.new(4, 4))
+                WindowOutline.Size = Vector2.new(Width, Height)
+                WindowOutlineBorder.Size = WindowOutline.Size - Vector2.new(2, 2)
+                WindowFrame.Size = WindowOutline.Size - Vector2.new(4, 4)
+                WindowImage.Size = WindowFrame.Size
                 KeybindGlow.Size = Vector2.new(Width - 4, 18)
                 WindowTopline.Position = WindowOutline.Position + Vector2.new(2, 20)
                 WindowTopline.Size = Vector2.new(Width - 4, 1)
@@ -873,7 +774,6 @@ do
             end
         end
         function Window:SwitchTab(Tab)
-            local Animate = Library.WindowInstance ~= nil and Library.WindowVisible
             self:ClosePopups()
             for Index, Value in pairs(self.Tabs) do
                 Value.Glow.Visible = false
@@ -886,24 +786,17 @@ do
             end
 
             Tab.Glow.Visible = true
-            if Animate then Tab.Glow.Transparency = 0 end
-            Utility.Fade(Tab.Glow, Library.WindowVisible and 1 or 0, 0.14)
             Tab["TabOutline"].Color = Library.Theme.LightContrast
             Tab["TabTitle"].Color = Library.Theme.Text
 
-            Utility.Tween(TabLine, "Size", Vector2.new(Tab["TabOutline"].Size.X, 1), 0.12)
-            Utility.Tween(TabLine, "Position", Vector2.new(Tab.TabOutline.Position.X, Tab.TabOutline.Position.Y), 0.12)
+            TabLine.Size = Vector2.new(Tab["TabOutline"].Size.X, 1)
+            TabLine.Position = Vector2.new(Tab.TabOutline.Position.X, Tab.TabOutline.Position.Y)
             DisableLine.Size = Vector2.new(Tab["TabOutline"].Size.X, 1)
             DisableLine.Position = Vector2.new(Tab["TabOutline"].Position.X, Tab["TabOutline"].Position.Y + Tab["TabOutline"].Size.Y)
             Window.SelectedTab = Tab.CurrentTab
 
             for _, Render in pairs(Tab["Render"]) do
                 Render.Visible = true
-                local Info = Library.DrawingInfo[Render]
-                if Info and not Info.Hitbox then
-                    if Animate then Render.Transparency = 0 end
-                    Utility.Fade(Render, Library.WindowVisible and Info.Alpha or 0, 0.14)
-                end
             end
         end
         function Window:Tab(Title)
@@ -954,11 +847,6 @@ do
                     TabTitle.Color = Color
                 elseif Type == "Inline" then
                     TabInline.Color = Color
-                end
-            end)
-            Utility.AddConnection("InputChanged", function(Input)
-                if Input.UserInputType == Enum.UserInputType.MouseMovement then
-                    Utility.Tween(TabTitle, "Color", (Window.SelectedTab == Tab.CurrentTab or Utility.OnMouse(TabInline)) and Library.Theme.Text or Library.Theme.TextInactive, 0.1)
                 end
             end)
             function Tab:Install()
@@ -1112,7 +1000,7 @@ do
                     })
                     function Toggle:Set(State)
                         Toggle.Toggled = State
-                        Utility.Tween(ToggleOutline, "Color", Toggle.Toggled and Library.Theme.Accent[1] or Library.Theme.DarkContrast, 0.1)
+                        ToggleOutline.Color = Toggle.Toggled and Library.Theme.Accent[1] or Library.Theme.DarkContrast
                         Library.Flags[Options.Flag] = Toggle.Toggled
                         Toggle.Callback(Toggle.Toggled)
                     end
@@ -1131,9 +1019,9 @@ do
                     Utility.AddConnection("InputChanged", function(Input, Useless)
                         if Input.UserInputType == Enum.UserInputType.MouseMovement then
                             if Utility.OnMouse(ToggleHitbox) then
-                                Utility.Tween(ToggleInline, "Color", Library.Theme.Accent[1], 0.1)
+                                ToggleInline.Color = Library.Theme.Accent[1]
                             else
-                                Utility.Tween(ToggleInline, "Color", Library.Theme.Inline, 0.1)
+                                ToggleInline.Color = Library.Theme.Inline
                             end
                         end
                     end)
@@ -1911,7 +1799,6 @@ do
                             end
                         end)
                         Keybind:Drop(false)
-                        Utility.Hover(KeybindInline)
                         Tab["Render"][#Tab["Render"] + 1] = KeybindGradient
                         Tab["Render"][#Tab["Render"] + 1] = KeybindInline
                         Tab["Render"][#Tab["Render"] + 1] = KeybindOutline
@@ -2105,9 +1992,9 @@ do
                     end)
                     Utility.AddConnection("InputChanged", function(Input, Useless)
                         if Utility.OnMouse(SliderInline) then
-                            Utility.Tween(SliderInline, "Color", Library.Theme.Accent[1], 0.1)
+                            SliderInline.Color = Library.Theme.Accent[1]
                         else
-                            Utility.Tween(SliderInline, "Color", Library.Theme.Inline, 0.1)
+                            SliderInline.Color = Library.Theme.Inline
                         end
                         
                         for Index, Value in pairs(Tab.Dropdowns[Side]) do
@@ -2185,17 +2072,13 @@ do
                     end)
                     Utility.AddConnection("InputChanged", function(Input, Useless)
                         if Utility.OnMouse(ButtonInline) then
-                            Utility.Tween(ButtonInline, "Color", Library.Theme.Accent[1], 0.1)
+                            ButtonInline.Color = Library.Theme.Accent[1]
                         else
-                            Utility.Tween(ButtonInline, "Color", Library.Theme.Inline, 0.1)
+                            ButtonInline.Color = Library.Theme.Inline
                         end
                     end)
                     function Button:SetText(Text) ButtonTitle.Text = Text end
-                    function Button:Press()
-                        ButtonOutline.Color = Color3.fromHex("#201014")
-                        Utility.Tween(ButtonOutline, "Color", Library.Theme.DarkContrast, 0.16)
-                        Button.Callback()
-                    end
+                    function Button:Press() Button.Callback() end
                     Button.Bounds = ButtonOutline
                     Utility.AddConnection("InputBegan", function(Input, Useless)
                         
@@ -2590,14 +2473,14 @@ do
     
                     Utility.AddConnection("InputChanged", function(Input, Useless)
                         if Utility.OnMouse(ColorpickerInline) then
-                            Utility.Tween(ColorpickerInline, "Color", Library.Theme.Accent[1], 0.1)
+                            ColorpickerInline.Color = Library.Theme.Accent[1]
                         else
-                            Utility.Tween(ColorpickerInline, "Color", Library.Theme.Inline, 0.1)
+                            ColorpickerInline.Color = Library.Theme.Inline
                         end
                         if Utility.OnMouse(ColorpickerInline) then
-                            Utility.Tween(ColorpickerInline, "Color", Library.Theme.Accent[1], 0.1)
+                            ColorpickerInline.Color = Library.Theme.Accent[1]
                         else
-                            Utility.Tween(ColorpickerInline, "Color", Library.Theme.Inline, 0.1)
+                            ColorpickerInline.Color = Library.Theme.Inline
                         end
                         
                         if Input.UserInputType == Enum.UserInputType.MouseMovement then
@@ -2821,9 +2704,9 @@ do
                         Utility.AddConnection("InputChanged", function(Input, Useless)
                             if Input.UserInputType == Enum.UserInputType.MouseMovement then
                                 if Utility.OnMouse(SelectionInline) then
-                                    Utility.Tween(SelectionInline, "Color", Library.Theme.Accent[1], 0.1)
+                                    SelectionInline.Color = Library.Theme.Accent[1]
                                 else
-                                    Utility.Tween(SelectionInline, "Color", Library.Theme.Inline, 0.1)
+                                    SelectionInline.Color = Library.Theme.Inline
                                 end
                             end
                         end)
@@ -2871,9 +2754,9 @@ do
                     Utility.AddConnection("InputChanged", function(Input, Useless)
                         if Input.UserInputType == Enum.UserInputType.MouseMovement then
                             if Utility.OnMouse(DropdownInline) then
-                                Utility.Tween(DropdownInline, "Color", Library.Theme.Accent[1], 0.1)
+                                DropdownInline.Color = Library.Theme.Accent[1]
                             else
-                                Utility.Tween(DropdownInline, "Color", Library.Theme.Inline, 0.1)
+                                DropdownInline.Color = Library.Theme.Inline
                             end
                         end
                     end)
@@ -3212,7 +3095,6 @@ do
                         end
                     end)
                     Keybind:Drop(false)
-                        Utility.Hover(KeybindInline)
                     Section.ContentAxis = Section.ContentAxis + KeybindInline.Size.Y + 8
                     Tab.SectionAxis = {
                         Side == "Left" and Tab.SectionAxis[1] +  KeybindInline.Size.Y + 8 or Tab.SectionAxis[1], 
