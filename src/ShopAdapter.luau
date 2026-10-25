@@ -27,6 +27,12 @@ return function()
         return Z ~= nil and #Z:GetChildren() == 0 and Button ~= nil
             and type(Button.Text) == "string" and Button.Text:find("Ready", 1, true) ~= nil
     end
+    function A:CanReady()
+        local Values = RS:FindFirstChild("Values")
+        local Vote = Values and Values:FindFirstChild("Vote")
+        if Vote then return Vote.Value == true end
+        return self:BetweenRounds()
+    end
     function A:OwnedTool(Name)
         local Bag = P:FindFirstChildOfClass("Backpack")
         return Bag and Bag:FindFirstChild(Name) or P.Character and P.Character:FindFirstChild(Name)
@@ -181,7 +187,7 @@ return function()
     end
     function A:TryReady()
         if not self.Alive or self.Pending or self.RestockPending or self.ReadyPending then return nil, "Waiting for shop transactions" end
-        if not self:BetweenRounds() then return nil, "Waiting for round end" end
+        if not self:CanReady() then return nil, "Waiting for round end" end
         local Voted = P:FindFirstChild("Voted")
         if not Voted then return nil, "Native ready state unavailable" end
         if Voted.Value == true then return nil, "Ready; waiting for other players" end
@@ -200,9 +206,14 @@ return function()
         if debug.getupvalue(Fn, 1) ~= P or typeof(Remote) ~= "Instance" or Remote.Name ~= "VoteSkip" then return nil, "Native ready version unsupported" end
         if debug.getupvalue(Fn, 2) ~= false then return nil, "Native ready request busy" end
         local Record = {Done = false, Started = os.clock()}
-        self.ReadyPending = Record; self.ReadyAttemptedWave = Wave.Value
+        self.ReadyPending = Record
         task.spawn(function()
-            if not self.Alive or self.CanStart and not self.CanStart() then Record.Done = true; return end
+            if not self.Alive or self.CanStart and not self.CanStart() or not self:CanReady() then
+                Record.Cancelled = true; Record.Done = true; return
+            end
+            if Voted.Value == true then Record.Ready = true; Record.Done = true; return end
+            self.ReadyAttemptedWave = Wave.Value
+            Record.Submitted = true
             local OK, Error = pcall(Fn, Native)
             Record.Error = not OK and tostring(Error) or nil
             Record.Ready = OK and Voted.Parent ~= nil and Voted.Value == true
@@ -215,7 +226,7 @@ return function()
         if not Record then return "idle" end
         if not Record.Done then return "waiting" end
         self.ReadyPending = nil
-        return Record.Ready and "ready" or "unconfirmed"
+        return Record.Cancelled and "cancelled" or Record.Ready and "ready" or "unconfirmed"
     end
     function A:Poll()
         local Pending = self.Pending

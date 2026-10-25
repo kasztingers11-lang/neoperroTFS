@@ -284,9 +284,12 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             local Score = -math.huge
             for _, T in ipairs(Bag:GetChildren()) do
                 if T:IsA("Tool") and T:FindFirstChild("GunScript") and T:FindFirstChild("CurrentValues")
+                    and Value(T, "FireType", "Single") ~= "Charge"
                     and (Value(T, "Clip", 0) ~= 0 or Value(T, "Ammo", 0) ~= 0) then
-                    local Ready = Value(T, "Clip", 0) ~= 0 and 100000 or 0
-                    local Current = Ready + math.clamp(Value(T, "Ammo", 0), 0, 99999)
+                    local Clip = Value(T, "Clip", 0)
+                    local Ready = Clip ~= 0 and 100000 or 0
+                    local Loaded = Clip < 0 and 1000 or math.clamp(Clip, 0, 1000)
+                    local Current = Ready + Loaded * 100 + math.clamp(Value(T, "Ammo", 0), 0, 9999)
                     if Current > Score then Best = T; Score = Current end
                 end
             end
@@ -473,6 +476,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         return nil
     end
+    function A:HasAmmunition()
+        for _, Parent in ipairs({P.Character, P:FindFirstChildOfClass("Backpack")}) do
+            if Parent then for _, Tool in ipairs(Parent:GetChildren()) do
+                if Tool:IsA("Tool") and Tool:FindFirstChild("GunScript") and (Value(Tool, "Clip", 0) ~= 0 or Value(Tool, "Ammo", 0) ~= 0) then return true end
+            end end
+        end
+        return false
+    end
     function A:AutoRefill(H, Root)
         local State = self.Refill:Poll()
         if State == "refilled" then Status("AmmoStatus", "Reserve refilled")
@@ -497,7 +508,8 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not Box then Status("AmmoStatus", "No stocked ammo box available"); return false end
         local Near = self.Navigation:Separation(Root.Position, self.Zombies)
         local Radius = Number(Flags.FarmDistance, 24, 5, 100)
-        if Near < Radius + 8 then
+        local Emergency = not self:HasAmmunition()
+        if Near < (Emergency and 10 or math.min(Radius, 18)) then
             if self.TravelPurpose == "ammo" then self:CancelTravel() end
             Status("AmmoStatus", "Retreating before resupply"); return false
         end
@@ -513,7 +525,11 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Context = self.Refill:Context()
         if not Context then Status("AmmoStatus", "Native refill unavailable"); return false end
         local Duration = self.Refill:Duration(Box, Context)
-        local SafeGap = math.max(Radius + 8, 12 + Duration * 16)
+        local Speed = 0
+        for _, Z in ipairs(self.Zombies) do
+            if Z.Head.Parent and Z.Humanoid.Health > 0 then Speed = math.max(Speed, Number(Z.Humanoid.WalkSpeed, 16, 0, 100)) end
+        end
+        local SafeGap = math.max(10, 8 + Duration * Speed * 1.2)
         if Near < SafeGap then
             Status("AmmoStatus", "Making space for native refill")
             if Flags.FarmKeepDistance then self.ResupplyEscapeRadius = SafeGap; self:Kite(H, Root, SafeGap); return true end
@@ -641,11 +657,18 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if State == "waiting" then Status("ReadyStatus", "Waiting for native Ready reply"); return end
         if State == "unconfirmed" then Status("ReadyStatus", "Ready unconfirmed; no repeat vote"); return end
         if not Flags.FarmAutoReady then self.ReadyQuietSince = nil; return end
-        if not H or not self:Focused() or not self.Shop:BetweenRounds() then self.ReadyQuietSince = nil; return end
+        local CanReady = self.Shop.CanReady and self.Shop:CanReady()
+        if not self.Shop.CanReady then CanReady = self.Shop:BetweenRounds() end
+        if not H or not self:Focused() or not CanReady then self.ReadyQuietSince = nil; return end
         local Busy = self.Shop.Pending or self.Shop.RestockPending or self.Refill.Pending or self.Travelling or self.PathComputing
             or self.UnconfirmedWeapon or self.RestockError or os.clock() < (self.ManualUntil or 0)
             or Flags.UpgradeEnabled and not self.UpgradeIdle
-        if not Busy and Flags.FarmAutoRefill then Busy = self:AmmoTool() ~= nil end
+        if not Busy and Flags.FarmAutoRefill and self:AmmoTool() then
+            local _, _, Root = self:Character()
+            -- Low reserve alone is not a job: no usable box must not prevent Ready forever.
+            local Box = Root and self.Refill:Nearest(Root)
+            Busy = Box ~= nil and not (self.PathFailedUntil and os.clock() < self.PathFailedUntil)
+        end
         if Busy then self.ReadyQuietSince = nil; Status("ReadyStatus", "Finishing enabled shop / ammo tasks"); return end
         self.ReadyQuietSince = self.ReadyQuietSince or os.clock()
         if os.clock() - self.ReadyQuietSince < 1.5 then Status("ReadyStatus", "Tasks settled; starting shortly"); return end
@@ -701,12 +724,16 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if Active and self:Focused() and Now - (self.LastZombieScan or -10) >= 0.1 then self:SnapshotZombies() end
         local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
         local Distance = Root and self.Navigation:Separation(Root.Position, self.Zombies) or math.huge
-        local Danger = Flags.FarmKeepDistance and (Distance < Radius or self.Navigation.Active and Distance < Radius + 8)
+        local Resupply = Flags.FarmAutoRefill and Root and self:AmmoTool() and self.Refill:Nearest(Root)
+        local Emergency = Resupply and not self:HasAmmunition()
+        local RetreatRadius = self.ResupplyEscapeRadius or (Emergency and math.min(Radius, 10) or Radius)
+        local Danger = Flags.FarmKeepDistance and (Distance < RetreatRadius or not Emergency and self.Navigation.Active and Distance < Radius + 8)
+        if self.Refill.Pending then Danger = Flags.FarmKeepDistance and Distance < 6 end
         local Manual = self:ManualMovement()
         local Restocking, Travelling = false, false
         -- Emergency retreat owns movement; shop travel cannot steer against it.
         -- Already-submitted transactions still need their normal completion polling.
-        if not Danger and not Manual or self.Shop.Pending or self.Shop.RestockPending then
+        if not Danger and not Manual and not Resupply or self.Shop.Pending or self.Shop.RestockPending then
             Restocking = self:Restock(H, Root)
             Travelling = not Restocking and self:Upgrade(H, Root)
         end
@@ -720,7 +747,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         else
             if self.TravelPurpose == "shop" then self:CancelTravel() end
             if Danger then
-                self:CancelTravel(); self:Kite(H, Root, Radius)
+                self:CancelTravel(); self:Kite(H, Root, RetreatRadius)
                 self.Refill:Poll(); Status("AmmoStatus", Flags.FarmAutoRefill and "Retreating before resupply" or "Auto refill off")
             else
                 self.Navigation:Reset(); self.ResupplyEscapeRadius = nil

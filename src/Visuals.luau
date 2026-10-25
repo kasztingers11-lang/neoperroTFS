@@ -49,7 +49,7 @@ return function(Library: any, Window: any)
         return nil
     end
     function V:AddCham(Model)
-        if not Flags.VisualHitChams or not Model then return end
+        if not Flags.VisualHitChams or not Model or Model == P.Character or self:Zombie(Model) ~= Model then return end
         local Existing = self.Chams[Model]
         if Existing then Existing.At = os.clock(); return end
         local Count, OldestModel, Oldest = 0, nil, math.huge
@@ -101,14 +101,14 @@ return function(Library: any, Window: any)
         Params.FilterDescendantsInstances = Ignore
         local Delta = Finish - Start
         local Hit = W:Raycast(Start, Delta + Delta.Unit * 0.35, Params)
-        return Hit and self:Zombie(Hit.Instance) or nil
+        return Hit and self:Zombie(Hit.Instance) or nil, Hit and Hit.Position
     end
     function V:OnShot(Player, Tool, Muzzle, Rays)
         if not self.Alive or Player ~= P or type(Rays) ~= "table" then return end
         local Head = P.Character and P.Character:FindFirstChild("Head")
         local Origin = typeof(Muzzle) == "Instance" and Muzzle:IsA("BasePart") and Muzzle.Position or Head and Head.Position
         local Count, Contacts = 0, 0
-        local Scan = Flags.VisualHitChams and os.clock() - self.LastContactScan >= 1 / 30
+        local Scan = (Flags.VisualHitChams or Flags.VisualHitIndicator) and os.clock() - self.LastContactScan >= 1 / 30
         for _, Row in pairs(Rays) do
             if type(Row) == "table" then
                 Count = Count + 1; if Count > 16 then break end
@@ -117,11 +117,15 @@ return function(Library: any, Window: any)
                 if type(Row[4]) == "number" and type(Rays[Row[4]]) == "table" then Start = self:Point(Rays[Row[4]][1]) or Start end
                 self:AddTracer(Start, Finish)
                 local Model = self:Zombie(Row[2])
+                local ContactPoint = Finish
                 -- Native visual rays usually omit zombie parts; reconstruct the
                 -- actual shot segment instead of treating a world-impact field as a target.
                 if not Model and Scan and Contacts < 4 then
                     Contacts = Contacts + 1
-                    Model = self:Contact(Head and Head.Position or Start, Finish, Tool)
+                    Model, ContactPoint = self:Contact(Head and Head.Position or Start, Finish, Tool)
+                end
+                if Model then
+                    self.ContactHit = {Model = Model, Position = ContactPoint or Finish, At = os.clock()}
                 end
                 self:AddCham(Model)
             end
@@ -131,7 +135,10 @@ return function(Library: any, Window: any)
     end
     function V:OnHit()
         if not self.Alive then return end
-        self.LastHit = os.clock(); self:Refresh()
+        self.LastHit = os.clock()
+        local Contact = self.ContactHit
+        self.HitContact = Contact and os.clock() - Contact.At <= 0.5 and Contact or nil
+        self:Refresh()
     end
     function V:OnDamage(Amount)
         if not self.Alive or not Finite(Amount) or Amount <= 0 then return end
@@ -179,13 +186,19 @@ return function(Library: any, Window: any)
         if Flags.VisualHitIndicator then self:HitDrawings() end
         if self.HitLines then
             local Alpha = 1 - (Now - self.LastHit) / Duration("VisualHitTime", 0.3)
-            local Visible = Flags.VisualHitIndicator and Camera and Alpha > 0
+            local Contact = self.HitContact
+            local Point = Contact and Contact.Position
+            local Head = Contact and Contact.Model and Contact.Model:FindFirstChild("Head")
+            if Head and Head.Parent then Point = Head.Position end
+            local Screen, OnScreen
+            if Camera and Point then Screen, OnScreen = Camera:WorldToViewportPoint(Point) end
+            local Visible = Flags.VisualHitIndicator and Screen and OnScreen and Screen.Z > 0 and Alpha > 0
             for I, Lines in ipairs(self.HitLines) do
                 Lines.Glow.Visible = Visible == true; Lines.Core.Visible = Visible == true
                 if Visible then
                     local SX = (I == 1 or I == 4) and -1 or 1
                     local SY = I <= 2 and -1 or 1
-                    local X, Y = Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2
+                    local X, Y = Screen.X, Screen.Y
                     local Offset = 7 + (1 - Alpha) * 5
                     Lines.Glow.From = Vector2.new(X + SX * Offset, Y + SY * Offset)
                     Lines.Glow.To = Vector2.new(X + SX * (Offset + 12), Y + SY * (Offset + 12))
@@ -194,10 +207,10 @@ return function(Library: any, Window: any)
                 end
             end
             local DamageAlpha = 1 - (Now - self.DamageAt) / 0.6
-            self.DamageText.Visible = Flags.VisualHitIndicator == true and Camera ~= nil and DamageAlpha > 0
+            self.DamageText.Visible = Flags.VisualHitIndicator == true and Screen ~= nil and OnScreen == true and Screen.Z > 0 and DamageAlpha > 0
             if self.DamageText.Visible then
                 self.DamageText.Text = tostring(math.floor((self.RecentDamage or 0) + 0.5))
-                self.DamageText.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2 + 24 - (1 - DamageAlpha) * 14)
+                self.DamageText.Position = Vector2.new(Screen.X, Screen.Y + 24 - (1 - DamageAlpha) * 14)
                 self.DamageText.Transparency = DamageAlpha
             end
         end

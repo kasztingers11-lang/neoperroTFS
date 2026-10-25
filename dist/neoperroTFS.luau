@@ -3865,6 +3865,12 @@ return function()
         return Z ~= nil and #Z:GetChildren() == 0 and Button ~= nil
             and type(Button.Text) == "string" and Button.Text:find("Ready", 1, true) ~= nil
     end
+    function A:CanReady()
+        local Values = RS:FindFirstChild("Values")
+        local Vote = Values and Values:FindFirstChild("Vote")
+        if Vote then return Vote.Value == true end
+        return self:BetweenRounds()
+    end
     function A:OwnedTool(Name)
         local Bag = P:FindFirstChildOfClass("Backpack")
         return Bag and Bag:FindFirstChild(Name) or P.Character and P.Character:FindFirstChild(Name)
@@ -4019,7 +4025,7 @@ return function()
     end
     function A:TryReady()
         if not self.Alive or self.Pending or self.RestockPending or self.ReadyPending then return nil, "Waiting for shop transactions" end
-        if not self:BetweenRounds() then return nil, "Waiting for round end" end
+        if not self:CanReady() then return nil, "Waiting for round end" end
         local Voted = P:FindFirstChild("Voted")
         if not Voted then return nil, "Native ready state unavailable" end
         if Voted.Value == true then return nil, "Ready; waiting for other players" end
@@ -4038,9 +4044,14 @@ return function()
         if debug.getupvalue(Fn, 1) ~= P or typeof(Remote) ~= "Instance" or Remote.Name ~= "VoteSkip" then return nil, "Native ready version unsupported" end
         if debug.getupvalue(Fn, 2) ~= false then return nil, "Native ready request busy" end
         local Record = {Done = false, Started = os.clock()}
-        self.ReadyPending = Record; self.ReadyAttemptedWave = Wave.Value
+        self.ReadyPending = Record
         task.spawn(function()
-            if not self.Alive or self.CanStart and not self.CanStart() then Record.Done = true; return end
+            if not self.Alive or self.CanStart and not self.CanStart() or not self:CanReady() then
+                Record.Cancelled = true; Record.Done = true; return
+            end
+            if Voted.Value == true then Record.Ready = true; Record.Done = true; return end
+            self.ReadyAttemptedWave = Wave.Value
+            Record.Submitted = true
             local OK, Error = pcall(Fn, Native)
             Record.Error = not OK and tostring(Error) or nil
             Record.Ready = OK and Voted.Parent ~= nil and Voted.Value == true
@@ -4053,7 +4064,7 @@ return function()
         if not Record then return "idle" end
         if not Record.Done then return "waiting" end
         self.ReadyPending = nil
-        return Record.Ready and "ready" or "unconfirmed"
+        return Record.Cancelled and "cancelled" or Record.Ready and "ready" or "unconfirmed"
     end
     function A:Poll()
         local Pending = self.Pending
@@ -4714,9 +4725,12 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             local Score = -math.huge
             for _, T in ipairs(Bag:GetChildren()) do
                 if T:IsA("Tool") and T:FindFirstChild("GunScript") and T:FindFirstChild("CurrentValues")
+                    and Value(T, "FireType", "Single") ~= "Charge"
                     and (Value(T, "Clip", 0) ~= 0 or Value(T, "Ammo", 0) ~= 0) then
-                    local Ready = Value(T, "Clip", 0) ~= 0 and 100000 or 0
-                    local Current = Ready + math.clamp(Value(T, "Ammo", 0), 0, 99999)
+                    local Clip = Value(T, "Clip", 0)
+                    local Ready = Clip ~= 0 and 100000 or 0
+                    local Loaded = Clip < 0 and 1000 or math.clamp(Clip, 0, 1000)
+                    local Current = Ready + Loaded * 100 + math.clamp(Value(T, "Ammo", 0), 0, 9999)
                     if Current > Score then Best = T; Score = Current end
                 end
             end
@@ -4903,6 +4917,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         return nil
     end
+    function A:HasAmmunition()
+        for _, Parent in ipairs({P.Character, P:FindFirstChildOfClass("Backpack")}) do
+            if Parent then for _, Tool in ipairs(Parent:GetChildren()) do
+                if Tool:IsA("Tool") and Tool:FindFirstChild("GunScript") and (Value(Tool, "Clip", 0) ~= 0 or Value(Tool, "Ammo", 0) ~= 0) then return true end
+            end end
+        end
+        return false
+    end
     function A:AutoRefill(H, Root)
         local State = self.Refill:Poll()
         if State == "refilled" then Status("AmmoStatus", "Reserve refilled")
@@ -4927,7 +4949,8 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not Box then Status("AmmoStatus", "No stocked ammo box available"); return false end
         local Near = self.Navigation:Separation(Root.Position, self.Zombies)
         local Radius = Number(Flags.FarmDistance, 24, 5, 100)
-        if Near < Radius + 8 then
+        local Emergency = not self:HasAmmunition()
+        if Near < (Emergency and 10 or math.min(Radius, 18)) then
             if self.TravelPurpose == "ammo" then self:CancelTravel() end
             Status("AmmoStatus", "Retreating before resupply"); return false
         end
@@ -4943,7 +4966,11 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Context = self.Refill:Context()
         if not Context then Status("AmmoStatus", "Native refill unavailable"); return false end
         local Duration = self.Refill:Duration(Box, Context)
-        local SafeGap = math.max(Radius + 8, 12 + Duration * 16)
+        local Speed = 0
+        for _, Z in ipairs(self.Zombies) do
+            if Z.Head.Parent and Z.Humanoid.Health > 0 then Speed = math.max(Speed, Number(Z.Humanoid.WalkSpeed, 16, 0, 100)) end
+        end
+        local SafeGap = math.max(10, 8 + Duration * Speed * 1.2)
         if Near < SafeGap then
             Status("AmmoStatus", "Making space for native refill")
             if Flags.FarmKeepDistance then self.ResupplyEscapeRadius = SafeGap; self:Kite(H, Root, SafeGap); return true end
@@ -5071,11 +5098,18 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if State == "waiting" then Status("ReadyStatus", "Waiting for native Ready reply"); return end
         if State == "unconfirmed" then Status("ReadyStatus", "Ready unconfirmed; no repeat vote"); return end
         if not Flags.FarmAutoReady then self.ReadyQuietSince = nil; return end
-        if not H or not self:Focused() or not self.Shop:BetweenRounds() then self.ReadyQuietSince = nil; return end
+        local CanReady = self.Shop.CanReady and self.Shop:CanReady()
+        if not self.Shop.CanReady then CanReady = self.Shop:BetweenRounds() end
+        if not H or not self:Focused() or not CanReady then self.ReadyQuietSince = nil; return end
         local Busy = self.Shop.Pending or self.Shop.RestockPending or self.Refill.Pending or self.Travelling or self.PathComputing
             or self.UnconfirmedWeapon or self.RestockError or os.clock() < (self.ManualUntil or 0)
             or Flags.UpgradeEnabled and not self.UpgradeIdle
-        if not Busy and Flags.FarmAutoRefill then Busy = self:AmmoTool() ~= nil end
+        if not Busy and Flags.FarmAutoRefill and self:AmmoTool() then
+            local _, _, Root = self:Character()
+            -- Low reserve alone is not a job: no usable box must not prevent Ready forever.
+            local Box = Root and self.Refill:Nearest(Root)
+            Busy = Box ~= nil and not (self.PathFailedUntil and os.clock() < self.PathFailedUntil)
+        end
         if Busy then self.ReadyQuietSince = nil; Status("ReadyStatus", "Finishing enabled shop / ammo tasks"); return end
         self.ReadyQuietSince = self.ReadyQuietSince or os.clock()
         if os.clock() - self.ReadyQuietSince < 1.5 then Status("ReadyStatus", "Tasks settled; starting shortly"); return end
@@ -5131,12 +5165,16 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if Active and self:Focused() and Now - (self.LastZombieScan or -10) >= 0.1 then self:SnapshotZombies() end
         local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
         local Distance = Root and self.Navigation:Separation(Root.Position, self.Zombies) or math.huge
-        local Danger = Flags.FarmKeepDistance and (Distance < Radius or self.Navigation.Active and Distance < Radius + 8)
+        local Resupply = Flags.FarmAutoRefill and Root and self:AmmoTool() and self.Refill:Nearest(Root)
+        local Emergency = Resupply and not self:HasAmmunition()
+        local RetreatRadius = self.ResupplyEscapeRadius or (Emergency and math.min(Radius, 10) or Radius)
+        local Danger = Flags.FarmKeepDistance and (Distance < RetreatRadius or not Emergency and self.Navigation.Active and Distance < Radius + 8)
+        if self.Refill.Pending then Danger = Flags.FarmKeepDistance and Distance < 6 end
         local Manual = self:ManualMovement()
         local Restocking, Travelling = false, false
         -- Emergency retreat owns movement; shop travel cannot steer against it.
         -- Already-submitted transactions still need their normal completion polling.
-        if not Danger and not Manual or self.Shop.Pending or self.Shop.RestockPending then
+        if not Danger and not Manual and not Resupply or self.Shop.Pending or self.Shop.RestockPending then
             Restocking = self:Restock(H, Root)
             Travelling = not Restocking and self:Upgrade(H, Root)
         end
@@ -5150,7 +5188,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         else
             if self.TravelPurpose == "shop" then self:CancelTravel() end
             if Danger then
-                self:CancelTravel(); self:Kite(H, Root, Radius)
+                self:CancelTravel(); self:Kite(H, Root, RetreatRadius)
                 self.Refill:Poll(); Status("AmmoStatus", Flags.FarmAutoRefill and "Retreating before resupply" or "Auto refill off")
             else
                 self.Navigation:Reset(); self.ResupplyEscapeRadius = nil
@@ -5384,7 +5422,7 @@ return function(Library: any, Window: any)
         return nil
     end
     function V:AddCham(Model)
-        if not Flags.VisualHitChams or not Model then return end
+        if not Flags.VisualHitChams or not Model or Model == P.Character or self:Zombie(Model) ~= Model then return end
         local Existing = self.Chams[Model]
         if Existing then Existing.At = os.clock(); return end
         local Count, OldestModel, Oldest = 0, nil, math.huge
@@ -5436,14 +5474,14 @@ return function(Library: any, Window: any)
         Params.FilterDescendantsInstances = Ignore
         local Delta = Finish - Start
         local Hit = W:Raycast(Start, Delta + Delta.Unit * 0.35, Params)
-        return Hit and self:Zombie(Hit.Instance) or nil
+        return Hit and self:Zombie(Hit.Instance) or nil, Hit and Hit.Position
     end
     function V:OnShot(Player, Tool, Muzzle, Rays)
         if not self.Alive or Player ~= P or type(Rays) ~= "table" then return end
         local Head = P.Character and P.Character:FindFirstChild("Head")
         local Origin = typeof(Muzzle) == "Instance" and Muzzle:IsA("BasePart") and Muzzle.Position or Head and Head.Position
         local Count, Contacts = 0, 0
-        local Scan = Flags.VisualHitChams and os.clock() - self.LastContactScan >= 1 / 30
+        local Scan = (Flags.VisualHitChams or Flags.VisualHitIndicator) and os.clock() - self.LastContactScan >= 1 / 30
         for _, Row in pairs(Rays) do
             if type(Row) == "table" then
                 Count = Count + 1; if Count > 16 then break end
@@ -5452,11 +5490,15 @@ return function(Library: any, Window: any)
                 if type(Row[4]) == "number" and type(Rays[Row[4]]) == "table" then Start = self:Point(Rays[Row[4]][1]) or Start end
                 self:AddTracer(Start, Finish)
                 local Model = self:Zombie(Row[2])
+                local ContactPoint = Finish
                 -- Native visual rays usually omit zombie parts; reconstruct the
                 -- actual shot segment instead of treating a world-impact field as a target.
                 if not Model and Scan and Contacts < 4 then
                     Contacts = Contacts + 1
-                    Model = self:Contact(Head and Head.Position or Start, Finish, Tool)
+                    Model, ContactPoint = self:Contact(Head and Head.Position or Start, Finish, Tool)
+                end
+                if Model then
+                    self.ContactHit = {Model = Model, Position = ContactPoint or Finish, At = os.clock()}
                 end
                 self:AddCham(Model)
             end
@@ -5466,7 +5508,10 @@ return function(Library: any, Window: any)
     end
     function V:OnHit()
         if not self.Alive then return end
-        self.LastHit = os.clock(); self:Refresh()
+        self.LastHit = os.clock()
+        local Contact = self.ContactHit
+        self.HitContact = Contact and os.clock() - Contact.At <= 0.5 and Contact or nil
+        self:Refresh()
     end
     function V:OnDamage(Amount)
         if not self.Alive or not Finite(Amount) or Amount <= 0 then return end
@@ -5514,13 +5559,19 @@ return function(Library: any, Window: any)
         if Flags.VisualHitIndicator then self:HitDrawings() end
         if self.HitLines then
             local Alpha = 1 - (Now - self.LastHit) / Duration("VisualHitTime", 0.3)
-            local Visible = Flags.VisualHitIndicator and Camera and Alpha > 0
+            local Contact = self.HitContact
+            local Point = Contact and Contact.Position
+            local Head = Contact and Contact.Model and Contact.Model:FindFirstChild("Head")
+            if Head and Head.Parent then Point = Head.Position end
+            local Screen, OnScreen
+            if Camera and Point then Screen, OnScreen = Camera:WorldToViewportPoint(Point) end
+            local Visible = Flags.VisualHitIndicator and Screen and OnScreen and Screen.Z > 0 and Alpha > 0
             for I, Lines in ipairs(self.HitLines) do
                 Lines.Glow.Visible = Visible == true; Lines.Core.Visible = Visible == true
                 if Visible then
                     local SX = (I == 1 or I == 4) and -1 or 1
                     local SY = I <= 2 and -1 or 1
-                    local X, Y = Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2
+                    local X, Y = Screen.X, Screen.Y
                     local Offset = 7 + (1 - Alpha) * 5
                     Lines.Glow.From = Vector2.new(X + SX * Offset, Y + SY * Offset)
                     Lines.Glow.To = Vector2.new(X + SX * (Offset + 12), Y + SY * (Offset + 12))
@@ -5529,10 +5580,10 @@ return function(Library: any, Window: any)
                 end
             end
             local DamageAlpha = 1 - (Now - self.DamageAt) / 0.6
-            self.DamageText.Visible = Flags.VisualHitIndicator == true and Camera ~= nil and DamageAlpha > 0
+            self.DamageText.Visible = Flags.VisualHitIndicator == true and Screen ~= nil and OnScreen == true and Screen.Z > 0 and DamageAlpha > 0
             if self.DamageText.Visible then
                 self.DamageText.Text = tostring(math.floor((self.RecentDamage or 0) + 0.5))
-                self.DamageText.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2 + 24 - (1 - DamageAlpha) * 14)
+                self.DamageText.Position = Vector2.new(Screen.X, Screen.Y + 24 - (1 - DamageAlpha) * 14)
                 self.DamageText.Transparency = DamageAlpha
             end
         end

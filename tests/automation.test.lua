@@ -731,7 +731,7 @@ test("auto ready waits for purchases, ammo, uncertainty and a settled task inter
     c.Shop.Pending=nil;c.A:AutoReady(c.H);Now=Now+1;c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,nil)
     Now=Now+0.6;c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,1)
     c.A.UnconfirmedWeapon="Pistol";Now=Now+2;c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,1)
-    c.A.UnconfirmedWeapon=nil;c.Lib.Flags.FarmAutoRefill=true;c.Refill.Needs=function()return true end
+    c.A.UnconfirmedWeapon=nil;c.Lib.Flags.FarmAutoRefill=true;c.Refill.Needs=function()return true end;c.Refill.Nearest=function()return {} end
     Now=Now+2;c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,1)
 end)
 
@@ -914,7 +914,7 @@ test("live head raycasts reuse their native ignore list between refreshes",funct
     Now=Now+0.26;c.A:Visible(c.Root.Position,z,t);eq(calls,2)
 end)
 test("server damage flashes the hit indicator without RemoteHitmarker",function()
-    local c=visualFixture();c.Damage.OnClientEvent:Fire(60);eq(c.V.LastHit,Now)
+    local c=visualFixture();local z=c.Zombie("A",8,0);c.V.ContactHit={Model=z.Model,Position=z.Head.Position,At=Now};c.Damage.OnClientEvent:Fire(60);eq(c.V.LastHit,Now)
     c.V:Render();eq(c.V.HitLines[1].Core.Visible,true);eq(c.V.DamageText.Visible,true)
 end)
 test("native visual rays without zombie references reconstruct contact and respect walls",function()
@@ -944,6 +944,45 @@ test("visual work follows a 144 Hz deadline at a 240 FPS input rate",function()
     c.V.Render=function(self)calls=calls+1;return render(self)end
     for i=0,239 do Now=100+i/240;c.Run.Bindings.NeoperroHitVisuals()end
     assert(calls>=140 and calls<=145,tostring(calls))
+end)
+
+test("unavailable refill cannot block ready indefinitely",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);t.CurrentValues.Ammo.Value=0
+    c.Lib.Flags.FarmAutoReady=true;c.Lib.Flags.FarmAutoRefill=true
+    c.A:AutoReady(c.H);Now=Now+1.6;c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,1)
+end)
+test("ready uses native Vote permission independent of shop daytime",function()
+    local c=nativeShop();local vote=instance("Vote","BoolValue",c.RS.Values,{Value=true})
+    local old=game.GetService;game.GetService=function(self,name)if name=="Lighting"then return {GetMinutesAfterMidnight=function()return 1200 end}end;return old(self,name)end
+    eq(c.Native:BetweenRounds(),false);eq(c.Native:CanReady(),true);assert(c.Native:TryReady());flush();eq(c.ReadyCalls(),1)
+end)
+test("cancelled ready before submission does not spend its one attempt",function()
+    local c=nativeShop();assert(c.Native:TryReady());c.Native.CanStart=function()return false end
+    flush();eq(c.Native:PollReady(),"cancelled");eq(c.ReadyCalls(),0);eq(c.Native.ReadyAttemptedWave,nil)
+    c.Native.CanStart=function()return true end;assert(c.Native:TryReady());flush();eq(c.ReadyCalls(),1)
+end)
+test("hit feedback projects onto the zombie instead of screen center",function()
+    local c=visualFixture();local z=c.Zombie("A",8,0);c.V.ContactHit={Model=z.Model,Position=z.Head.Position,At=Now}
+    c.V:OnDamage(30);c.V:Render();assert(c.V.HitLines[1].Core.Visible)
+    assert(c.V.HitLines[1].Core.From.X<100);eq(c.V.DamageText.Position.X,z.Head.Position.X)
+    c.V:AddCham(c.P.Character);eq(c.V.Chams[c.P.Character],nil)
+    c.V.ContactHit=nil;c.V:OnDamage(20);c.V:Render();eq(c.V.HitLines[1].Core.Visible,false)
+end)
+test("empty guns approach a stocked box before optional shop work",function()
+    local c=setup();local t=c.Weapon("Pistol",c.Bag);t.CurrentValues.Clip.Value=0;t.CurrentValues.Ammo.Value=0
+    c.Lib.Flags.FarmAutoRefill=true;c.Lib.Flags.FarmKeepDistance=true;c.Zombie("A",15,0)
+    local box=instance("AmmoBox","Model",c.World);box.PrimaryPart=instance("Base","Part",box,{Position=Vector3.new(-20,3,0)})
+    c.Refill.Nearest=function()return box,20 end
+    local shops=0;c.A.Restock=function()shops=shops+1;return true end;c.A.Upgrade=function()shops=shops+1;return true end
+    c.A:Step();eq(shops,0);eq(c.A.TravelPurpose,"ammo");assert(c.A.PathComputing)
+end)
+
+test("empty main gun chooses a ready supported backup by loaded rounds",function()
+    local c=setup();local main=c.Weapon("Main",c.P.Character);main.CurrentValues.Clip.Value=0;main.CurrentValues.Ammo.Value=0
+    local charge=c.Weapon("Charge");charge.CurrentValues.FireType.Value="Charge";charge.CurrentValues.Clip.Value=100
+    local low=c.Weapon("Low");low.CurrentValues.Clip.Value=1;low.CurrentValues.Ammo.Value=150
+    local ready=c.Weapon("Ready");ready.CurrentValues.Clip.Value=12;ready.CurrentValues.Ammo.Value=5
+    c.Lib.Flags.FarmAutoShoot=true;c.A:Shoot(main);flush();assert(c.P.Character:FindFirstChild("Ready"));eq(c.P.Character:FindFirstChild("Charge"),nil)
 end)
 
 -- Input routing regression: production Library methods, mocked hitboxes only.
