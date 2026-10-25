@@ -6,10 +6,6 @@ return function(Library: any, Window: any)
         Retries = {}, Callbacks = {}, Notices = {}, LastApply = 0}
     local Flags = Library.Flags
     local Keys = {"GunRapidFire", "GunNoSpread", "GunNoRecoil", "FarmAutoShoot"}
-    local Unavailable = {
-        GunInfiniteAmmo = "Infinite ammo", GunInstantReload = "Instant reload",
-        GunInfiniteRange = "Infinite range", GunPiercing = "Zombie piercing"
-    }
     local function Notify(Key, Message)
         if F.Notices[Key] == Message then return end
         F.Notices[Key] = Message
@@ -247,17 +243,6 @@ return function(Library: any, Window: any)
         if Item then
             local Previous = Item.Callback
             OwnCallback(Item, function(Value) Previous(Value); F:QueueRefresh() end)
-        end
-    end
-    for Key, Name in pairs(Unavailable) do
-        local Item = Library.Items[Key]
-        if Item then
-            OwnCallback(Item, function(Value)
-                if not Value then return end
-                Item:Set(false)
-                Notify(Key, Name .. " unavailable: no working damage-preserving method verified")
-            end)
-            if Flags[Key] then Item:Set(false) end
         end
     end
     F:Refresh()

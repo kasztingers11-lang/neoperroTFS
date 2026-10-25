@@ -47,7 +47,7 @@ local EmbeddedAssets = {}
 `;
 for(const [name,data] of Object.entries(textures)){fs.writeFileSync(path.join(root,'assets',name),data);boot+=`EmbeddedAssets["${name}"] = decodeBase64([[${data.toString('base64')}]])\n`;}
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
-const modules=[['Library','Library'],['CreateFeatures','Features'],['CreateShopAdapter','ShopAdapter'],['CreateAutomation','Automation']];
+const modules=[['Library','Library'],['CreateFeatures','Features'],['CreateShopAdapter','ShopAdapter'],['CreateNavigation','Navigation'],['CreateAmmoAdapter','AmmoAdapter'],['CreateAutomation','Automation']];
 const bundle=boot+modules.map(([binding,name])=>'\nlocal '+binding+' = (function()\n'+read('src/'+name+'.luau')+'\nend)()\n').join('\n')+'\n'+read('src/App.luau');
 fs.mkdirSync(path.join(root,'dist'),{recursive:true});
 fs.writeFileSync(path.join(root,'dist/neoperroTFS.luau'),bundle);

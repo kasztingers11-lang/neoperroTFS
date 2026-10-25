@@ -1,5 +1,5 @@
 -- Native input, inventory discovery, movement and cash upgrades. No shot packets are fabricated.
-return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
+return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, CreateNavigation: any, CreateAmmoAdapter: any)
     local P: any = game:GetService("Players").LocalPlayer
     local Run = game:GetService("RunService")
     local Input = game:GetService("UserInputService")
@@ -8,7 +8,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
     local W: any = workspace
     local Flags = Library.Flags
     local A: any = {Alive = true, Connections = {}, Watches = {}, Callbacks = {}, Inventory = {},
-        Shop = CreateShopAdapter(), Zombies = {}, LastScan = -10, LastStep = -10, LastVisual = -10,
+        Shop = CreateShopAdapter(), Navigation = CreateNavigation(), Refill = CreateAmmoAdapter(), Zombies = {}, LastScan = -10, LastStep = -10, LastVisual = -10,
         LastBuy = -10, NextPress = 0, Lines = {}, Notices = {}, InventoryDirty = true}
     local RenderName = "NeoperroAutomation"
     local function Connect(Signal, Callback, Bucket)
@@ -91,7 +91,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
     end
     function A:ReleaseAim()
         self:ReleaseMouse()
-        if self.MouseBehavior then Input.MouseBehavior = self.MouseBehavior; self.MouseBehavior = nil end
+        self:RestoreView()
         self.Target = nil; self.AimedAt = nil
     end
     function A:ScanInventory()
@@ -163,6 +163,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
         self.InventoryDirty = true
     end
     function A:SnapshotZombies()
+        self.LastZombieScan = os.clock()
         local Folder = W:FindFirstChild("Zombies")
         local List = {}
         if Folder then
@@ -230,11 +231,11 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
         end
         return nil
     end
-    function A:Equip(H)
+    function A:Equip(H, Preferred)
         if self.Equipping or os.clock() < (self.NextEquip or 0) then return end
         local Bag = P:FindFirstChildOfClass("Backpack")
-        local Best
-        if Bag then
+        local Best = Preferred
+        if Bag and not Best then
             for _, T in ipairs(Bag:GetChildren()) do
                 if T:IsA("Tool") and T:FindFirstChild("GunScript") and T:FindFirstChild("CurrentValues")
                     and (Value(T, "Clip", 0) ~= 0 or Value(T, "Ammo", 0) ~= 0) then Best = T; break end
@@ -243,12 +244,13 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
         if Best then
             self.Equipping = true; self.NextEquip = os.clock() + 1
             task.spawn(function()
-                if self.Alive and Flags.FarmAutoShoot and self:Focused() and H.Parent == P.Character then pcall(H.EquipTool, H, Best) end
+                if self.Alive and (Flags.FarmAutoShoot or Flags.FarmAutoRefill) and self:Focused() and H.Parent == P.Character then pcall(H.EquipTool, H, Best) end
                 self.Equipping = false
             end)
         end
     end
     function A:CameraState()
+        self:RestoreView()
         if Flags.CameraThirdPerson then
             if not self.CameraSaved then
                 self.CameraSaved = {Mode = P.CameraMode, Min = P.CameraMinZoomDistance, Max = P.CameraMaxZoomDistance}
@@ -264,20 +266,30 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
             self.CameraSaved = nil
         end
     end
-    function A:Aim(Camera, Root, Target)
-        if not self.MouseBehavior then self.MouseBehavior = Input.MouseBehavior end
-        Input.MouseBehavior = Enum.MouseBehavior.LockCenter
-        local Origin = Camera.CFrame.Position
-        if Flags.CameraThirdPerson then
-            local Head = P.Character and P.Character:FindFirstChild("Head")
-            local Pivot = Head and Head.Position or Root.Position + Vector3.new(0, 1.5, 0)
-            local Direction = Unit(Target.Head.Position - Pivot)
-            local Desired = Pivot - Direction * Number(Flags.CameraDistance, 10, 4, 24) + Vector3.new(0, 1, 0)
-            local Hit = W:Raycast(Pivot, Desired - Pivot, self:Params(true))
-            Origin = Hit and Hit.Position + Hit.Normal * 0.4 or Desired
+    function A:RestoreView()
+        local View = self.SavedView
+        if View then
+            self.SavedView = nil
+            if View.Camera == W.CurrentCamera then View.Camera.CFrame = View.CFrame; View.Camera.Focus = View.Focus end
         end
-        Camera.CFrame = CFrame.lookAt(Origin, Target.Head.Position)
-        Camera.Focus = CFrame.new(Target.Head.Position)
+    end
+    function A:Aim(Camera, Root, Target)
+        -- GunScript fires at Camera+2. This runs at Camera+1; the view restores after firing.
+        local Head = P.Character and P.Character:FindFirstChild("Head")
+        local Origin = Head and Head.Position or Root.Position + Vector3.new(0, 1.5, 0)
+        if (Target.Head.Position - Origin).Magnitude < 0.25 then self.AimError = math.huge; return end
+        local Mouse = P:GetMouse()
+        local Ray = Camera:ScreenPointToRay(Mouse.X, Mouse.Y, 0)
+        local LocalRay = Camera.CFrame:VectorToObjectSpace(Ray.Direction)
+        if Flags.CameraThirdPerson then
+            self.SavedView = {Camera = Camera, CFrame = Camera.CFrame, Focus = Camera.Focus}
+        end
+        -- Compensate for the free cursor's screen position, instead of forcing LockCenter.
+        Camera.CFrame = CFrame.lookAt(Origin, Target.Head.Position) * CFrame.lookAt(Vector3.zero, LocalRay):Inverse()
+        self.AimedAt = Target.Head
+        self.LastAimPoint = Target.Head.Position
+        local ActualRay = Camera:ScreenPointToRay(Mouse.X, Mouse.Y, 0)
+        self.AimError = math.deg(math.acos(math.clamp(ActualRay.Direction:Dot((Target.Head.Position - Origin).Unit), -1, 1)))
     end
     function A:Shoot(Tool)
         local B = Guns.Weapons[Tool] or Guns:BindWeapon(Tool)
@@ -304,76 +316,42 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
             and not Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) and not self.ReleasePending then
             mouse1press(); self.MouseOwned = true; self.PressedBinding = B
             self.PressRelease = os.clock() + 0.035
-            self.NextPress = os.clock() + math.max(0.08, 60 / Number(Value(Tool, "AttackSpeed", 300), 300, 1, 7200))
+            self.NextPress = os.clock() + math.max(0.035, 60 / Number(B.Environment.LAS or Value(Tool, "AttackSpeed", 300), 300, 1, 7200))
         end
         Status("FarmStatus", "Head lock: " .. self.Target.Model.Name)
     end
     function A:ChooseEscape(Root, Radius)
-        local Position = Root.Position
-        local Away, Nearest = Vector3.zero, math.huge
-        for _, Z in ipairs(self.Zombies) do
-            local Delta = Flat(Position - Z.Head.Position)
-            local D = Delta.Magnitude
-            Nearest = math.min(Nearest, D)
-            if D < Radius + 8 then Away = Away + Unit(Delta) * (Radius + 8 - D) end
-        end
-        self.Nearest = Nearest
-        if Nearest >= Radius then return nil end
-        if Away.Magnitude < 0.01 then
-            local Z = self.Zombies[1]
-            Away = Z and Unit(Flat(Position - Z.Head.Position)) or Vector3.new(1, 0, 0)
-            if Away.Magnitude < 0.01 then Away = Vector3.new(1, 0, 0) end
-        end
-        Away = Unit(Away)
-        local Params = self:Params(true)
-        local Best, Score = nil, -math.huge
-        local Travel = math.clamp(Radius * 0.3, 5, 10)
-        for Index = 0, 15 do
-            local Angle = Index * math.pi / 8
-            local Direction = Vector3.new(math.cos(Angle), 0, math.sin(Angle))
-            local Hit = W:Blockcast(CFrame.new(Position), Vector3.new(2.8, 3.5, 2.8), Direction * Travel, Params)
-            local Clearance = Hit and Hit.Distance or Travel
-            local End = Position + Direction * math.min(Travel, math.max(0, Clearance - 0.6))
-            local Ground = W:Raycast(End + Vector3.new(0, 3, 0), Vector3.new(0, -10, 0), Params)
-            -- Cliffs and steep surfaces are always excluded; walls may still steer even with the preference off.
-            if Clearance >= 3 and Ground and Ground.Normal.Y >= 0.6 and math.abs(Ground.Position.Y - (Position.Y - 3)) < 4 then
-                local Safe = math.huge
-                for _, Z in ipairs(self.Zombies) do Safe = math.min(Safe, Flat(End - Z.Head.Position).Magnitude) end
-                local S = math.min(Safe, Radius + 15) * 2 + Direction:Dot(Away) * 5
-                    + (Flags.FarmAvoidWalls and Clearance or 0)
-                if self.StuckDirection then S = S - math.max(0, Direction:Dot(self.StuckDirection)) * 20 end
-                if S > Score then Score = S; Best = Direction end
-            end
-        end
-        return Best
+        local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
+        return self.Navigation:Update(H, Root, self.Zombies, Radius)
     end
     function A:Kite(H, Root)
-        if not self.LastPosition or os.clock() - self.LastPositionAt >= 1 then
-            if self.LastPosition and self.MoveDirection and (Root.Position - self.LastPosition).Magnitude < 1 then
-                self.StuckDirection = self.MoveDirection; self.StuckUntil = os.clock() + 2
-            end
-            self.LastPosition = Root.Position; self.LastPositionAt = os.clock()
-        end
-        if self.StuckUntil and os.clock() >= self.StuckUntil then self.StuckDirection = nil end
         self.MoveDirection = self:ChooseEscape(Root, Number(Flags.FarmDistance, 24, 5, 100))
+        self.Nearest = self.Navigation.Nearest
+        Status("MoveStatus", self.Navigation.Status or "Planning retreat")
         if self.MoveDirection then
-            self.MovingHumanoid = H
-            self:Sprint(Flags.FarmUseSprint == true)
-        else
-            self:StopMovement()
-            if self.Nearest < Number(Flags.FarmDistance, 24, 5, 100) then Status("FarmStatus", "No safe retreat path") end
-        end
+            self.MovingHumanoid = H; self:Sprint(Flags.FarmUseSprint == true)
+        else self:StopMovement() end
     end
     function A:TravelToShop(H, Root)
         local Regions = RS:FindFirstChild("ShopRegions")
         local Region = Regions and Regions:FindFirstChild("MainShopRegion")
         if not Region or not Region:IsA("BasePart") then Status("UpgradeStatus", "Shop location unavailable"); return end
-        if self.PathFailedUntil and os.clock() < self.PathFailedUntil then Status("UpgradeStatus", "Shop path blocked; retrying shortly"); return end
+        self:TravelToPoint(H, Root, Region.Position, "shop", "UpgradeStatus", "Walking to shop")
+    end
+    function A:TravelToPoint(H, Root, Goal, Purpose, Label, Message, IgnoreDestinationModel)
+        if self.TravelPurpose ~= Purpose then self:CancelTravel(); self:StopMovement(); self.PathFailedUntil = nil end
+        self.TravelPurpose = Purpose
+        if self.PathFailedUntil and os.clock() < self.PathFailedUntil then Status(Label, "Path blocked; retrying shortly"); return end
         if not self.Route and not self.PathComputing then
             self.PathComputing = true
             local Token = {}; self.PathToken = Token
-            local Ground = W:Raycast(Region.Position + Vector3.new(0, 3, 0), Vector3.new(0, -30, 0), self:Params(true))
-            local Destination = Ground and Ground.Position or Region.Position
+            local Params = self:Params(true)
+            if IgnoreDestinationModel then
+                local Ignore = Params.FilterDescendantsInstances
+                table.insert(Ignore, IgnoreDestinationModel); Params.FilterDescendantsInstances = Ignore
+            end
+            local Ground = W:Raycast(Goal + Vector3.new(0, 3, 0), Vector3.new(0, -30, 0), Params)
+            local Destination = Ground and Ground.Position or Goal
             task.spawn(function()
                 local OK, Route = pcall(function()
                     local Path = Paths:CreatePath({AgentRadius = 2, AgentHeight = 5, AgentCanJump = true, WaypointSpacing = 4})
@@ -403,11 +381,61 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
             if Point.Action == Enum.PathWaypointAction.Jump then H.Jump = true end
             self:Sprint(Flags.FarmUseSprint == true)
         end
-        Status("UpgradeStatus", "Walking to shop")
+        Status(Label, Message)
     end
     function A:CancelTravel()
-        self.PathToken = nil; self.PathComputing = false; self.Route = nil
+        self.PathToken = nil; self.PathComputing = false; self.Route = nil; self.TravelPurpose = nil
         if self.Travelling then self:StopMovement() end
+    end
+    function A:AmmoTool()
+        local T = self:Equipped()
+        if T and self.Refill:Needs(T) then return T end
+        local Bag = P:FindFirstChildOfClass("Backpack")
+        if Bag then
+            for _, Tool in ipairs(Bag:GetChildren()) do
+                if Tool:IsA("Tool") and Tool:FindFirstChild("GunScript") and self.Refill:Needs(Tool) then return Tool end
+            end
+        end
+        return nil
+    end
+    function A:AutoRefill(H, Root)
+        local State = self.Refill:Poll()
+        if State == "refilled" then Status("AmmoStatus", "Reserve refilled")
+        elseif State == "failed" then Status("AmmoStatus", "Refill interrupted or rejected") end
+        if self.Refill.Pending then self:ReleaseAim(); Status("AmmoStatus", "Native ammo-box interaction"); return false end
+        if not Flags.FarmAutoRefill or self.Shop.Pending then
+            if self.TravelPurpose == "ammo" then self:CancelTravel() end
+            return false
+        end
+        local Tool = self:AmmoTool()
+        if not Tool then
+            if self.TravelPurpose == "ammo" then self:CancelTravel() end
+            Status("AmmoStatus", "Reserve ammo sufficient"); return false
+        end
+        if not H or not self:Focused() then return false end
+        local Box, Distance = self.Refill:Nearest(Root)
+        if not Box then Status("AmmoStatus", "No stocked ammo box available"); return false end
+        local Near = self.Navigation:Separation(Root.Position, self.Zombies)
+        local Radius = Number(Flags.FarmDistance, 24, 5, 100)
+        if Near < Radius + 8 then
+            if self.TravelPurpose == "ammo" then self:CancelTravel() end
+            Status("AmmoStatus", "Retreating before resupply"); return false
+        end
+        if Distance >= 7 then
+            local Delta = Unit(Flat(Root.Position - Box.PrimaryPart.Position))
+            if Delta.Magnitude < 0.01 then Delta = Vector3.new(1, 0, 0) end
+            self:TravelToPoint(H, Root, Box.PrimaryPart.Position + Delta * 5, "ammo", "AmmoStatus", "Walking to ammo box", Box)
+            return true
+        end
+        self:CancelTravel(); self:StopMovement(); self:ReleaseAim()
+        if Tool.Parent ~= P.Character then self:Equip(H, Tool); Status("AmmoStatus", "Equipping gun for resupply"); return false end
+        local Context = self.Refill:Context()
+        if not Context then Status("AmmoStatus", "Native refill unavailable"); return false end
+        local Duration = self.Refill:Duration(Box, Context)
+        if Near < math.max(Radius + 8, 12 + Duration * 16) then Status("AmmoStatus", "Waiting for a safe refill gap"); return false end
+        local _, Message = self.Refill:Begin(Tool, Box, Root)
+        Status("AmmoStatus", Message)
+        return false
     end
     function A:OrderedLevels()
         local Levels = self.Shop:Levels(Flags.UpgradeWeapon)
@@ -444,7 +472,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
             self:StopUpgrade("Upgrade unconfirmed; stopped to avoid repeat buys", false)
             return false
         elseif State == "waiting" then Status("UpgradeStatus", "Waiting for server confirmation"); return false end
-        if not Flags.UpgradeEnabled then return false end
+        if not Flags.UpgradeEnabled or self.Refill.Pending then return false end
         if self.UnconfirmedWeapon == Flags.UpgradeWeapon then
             self:StopUpgrade("Previous upgrade unconfirmed; check native shop manually", false)
             return false
@@ -519,51 +547,67 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
     end
     function A:Step()
         local Now = os.clock()
-        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled
+        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled or Flags.FarmAutoRefill
         if self.InventoryDirty or (Active or Library.WindowVisible) and Now - self.LastScan >= 1 then self:ScanInventory() end
         self:CameraState()
         local _, H, Root = self:Character()
-        local Travelling = self:Upgrade(H, Root)
         if Active then self:SnapshotZombies() end
+        local Travelling = self:Upgrade(H, Root)
         if not H or not self:Focused() or self.Shop.Pending then
-            self:ReleaseAim(); self:StopMovement(); self:CancelTravel()
+            self:ReleaseAim(); self:StopMovement(); self:CancelTravel(); self.Navigation:Reset()
+            self.Refill:Poll()
             if Flags.FarmAutoShoot or Flags.FarmKeepDistance then Status("FarmStatus", not H and "Waiting for respawn" or "Hide UI and focus Roblox") end
-        elseif Travelling then self:ReleaseAim()
+        elseif Travelling then self:ReleaseAim(); self.Navigation:Reset()
         else
-            if not Flags.UpgradeEnabled or not self.Shop:BetweenRounds() then self:CancelTravel() end
-            if Flags.FarmKeepDistance then self:Kite(H, Root) else self:StopMovement() end
+            if self.TravelPurpose == "shop" then self:CancelTravel() end
+            local Distance = self.Navigation:Separation(Root.Position, self.Zombies)
+            local Radius = Number(Flags.FarmDistance, 24, 5, 100)
+            local Retreat = Flags.FarmKeepDistance and (Distance < Radius or self.Navigation.Active and Distance < Radius + 8)
+            if Retreat then
+                self:CancelTravel(); self:Kite(H, Root)
+                self.Refill:Poll(); Status("AmmoStatus", Flags.FarmAutoRefill and "Retreating before resupply" or "Auto refill off")
+            else
+                self.Navigation:Reset()
+                local AmmoTravelling = self:AutoRefill(H, Root)
+                if not AmmoTravelling then self:StopMovement() end
+            end
             if not Flags.FarmAutoShoot then self:ReleaseAim() end
         end
         self:RefreshRender()
     end
-    function A:Render()
+    function A:PreRender()
+        self:RestoreView()
         if not self.Alive then return end
         local _, H, Root = self:Character()
         local Camera = W.CurrentCamera
-        if H and self:Focused() and not self.Travelling and not self.Shop.Pending then
-            if self.MoveDirection then H:Move(self.MoveDirection, false) end
-            if Flags.FarmAutoShoot and Camera then
-                local Tool = self:Equipped()
-                if Tool then
-                    local B = Guns.Weapons[Tool]
-                    local Range = B and B.Environment.Range or Value(Tool, "Range", 0)
-                    local Origin = Root.Position + Vector3.new(0, 1.5, 0)
-                    local Target = self:SelectTarget(Origin, Number(Range, 0, 0, 1000000), Tool)
-                    if Target then
-                        self:Aim(Camera, Root, Target)
-                        -- Allow native mouse coordinates to settle for one frame after acquiring a head.
-                        if self.AimedAt == Target.Head then self:Shoot(Tool)
-                        else self:ReleaseMouse(); self.AimedAt = Target.Head end
-                    else self:ReleaseAim(); Status("FarmStatus", "No visible zombie in native range") end
-                else self:ReleaseAim(); self:Equip(H); Status("FarmStatus", "Equipping an available gun") end
-            else self:ReleaseAim() end
-        else self:ReleaseAim() end
+        if not (H and Camera and self:Focused() and (not self.Travelling or self.TravelPurpose == "ammo") and not self.Shop.Pending and not self.Refill.Pending and Flags.FarmAutoShoot) then
+            self:ReleaseAim(); return
+        end
+        local Tool = self:Equipped()
+        if not Tool then self:ReleaseAim(); self:Equip(H); Status("FarmStatus", "Equipping an available gun"); return end
+        local B = Guns.Weapons[Tool] or Guns:BindWeapon(Tool)
+        local Range = B and B.Environment.Range or Value(Tool, "Range", 0)
+        local Head = P.Character:FindFirstChild("Head")
+        local Origin = Head and Head.Position or Root.Position + Vector3.new(0, 1.5, 0)
+        if (not self.Target or self.Target.Humanoid.Health <= 0) and os.clock() - (self.LastZombieScan or -10) >= 0.03 then
+            self:SnapshotZombies()
+        end
+        local Target = self:SelectTarget(Origin, Number(Range, 0, 0, 1000000), Tool)
+        if not Target then self:ReleaseAim(); Status("FarmStatus", "No visible head in native range"); return end
+        self:Aim(Camera, Root, Target)
+        if self.AimError < 0.25 then self:Shoot(Tool) else self:ReleaseMouse(); Status("FarmStatus", "Waiting for head alignment") end
+    end
+    function A:Render()
+        self:RestoreView()
+        if not self.Alive then return end
+        local _, H, Root = self:Character()
+        if H and self:Focused() and self.MoveDirection then H:Move(self.MoveDirection, false) end
         if os.clock() - self.LastVisual >= 0.05 then
             self.LastVisual = os.clock(); self:Visuals(Root)
         end
     end
     function A:Fail(Error)
-        self:ReleaseAim(); self:StopMovement(); self:CancelTravel(); self:HideVisuals()
+        self:ReleaseAim(); self:StopMovement(); self:CancelTravel(); self.Navigation:Reset(); self:HideVisuals()
         if not self.Shop.Pending then Guns:SetSuspended(false) end
         self.Failed = true
         Notify("runtime-error", "Automation paused: " .. tostring(Error))
@@ -573,12 +617,16 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
         local Need = not self.Failed and (Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle)
         if Need and not self.Rendering then
             self.Rendering = true
+            Run:BindToRenderStep(RenderName .. "Aim", Enum.RenderPriority.Camera.Value + 1, function()
+                local OK, Error = pcall(self.PreRender, self)
+                if not OK then self:Fail(Error) end
+            end)
             Run:BindToRenderStep(RenderName, Enum.RenderPriority.Last.Value + 1, function()
                 local OK, Error = pcall(self.Render, self)
                 if not OK then self:Fail(Error) end
             end)
         elseif not Need and self.Rendering then
-            Run:UnbindFromRenderStep(RenderName); self.Rendering = false; self:HideVisuals()
+            Run:UnbindFromRenderStep(RenderName .. "Aim"); Run:UnbindFromRenderStep(RenderName); self.Rendering = false; self:HideVisuals()
         end
     end
     function A:Destroy()
@@ -592,11 +640,11 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
                 self:ReleaseMouse(); self:Sprint(false); FinalRelease:Disconnect()
             end)
         end
-        if self.Rendering then Run:UnbindFromRenderStep(RenderName); self.Rendering = false end
+        if self.Rendering then Run:UnbindFromRenderStep(RenderName .. "Aim"); Run:UnbindFromRenderStep(RenderName); self.Rendering = false end
         for _, C in ipairs(self.Connections) do C:Disconnect() end
         for _, Bucket in pairs(self.Watches) do for _, C in ipairs(Bucket) do C:Disconnect() end end
         for Item, Record in pairs(self.Callbacks) do if Item.Callback == Record.Owned then Item.Callback = Record.Previous end end
-        self.Shop:Destroy(); Guns:SetSuspended(false)
+        self.Shop:Destroy(); self.Navigation:Destroy(); self.Refill:Destroy(); Guns:SetSuspended(false)
         local Third = Flags.CameraThirdPerson; Flags.CameraThirdPerson = false; self:CameraState(); Flags.CameraThirdPerson = Third
         for _, Line in ipairs(self.Lines) do Line:Remove() end
         if self.DistanceText then self.DistanceText:Remove() end
@@ -622,7 +670,8 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
     Own("UpgradeEnabled", function(V) A.Notices["upgrade-stop"] = nil; if not V then A:CancelTravel() end end)
     Own("UpgradeShopFallback", function(V) if not V then A:CancelTravel() end end)
     Own("FarmAutoShoot", function(V) if not V then A:ReleaseAim() end end)
-    Own("FarmKeepDistance", function(V) if not V then A:StopMovement() end end)
+    Own("FarmKeepDistance", function(V) if not V then A:StopMovement(); A.Navigation:Reset() end end)
+    Own("FarmAutoRefill", function(V) if not V and A.TravelPurpose == "ammo" then A:CancelTravel() end end)
     Own("FarmUseSprint", function(V) if not V then A:Sprint(false) end end)
     Own("FarmShowDistance", function() A:HideVisuals() end)
     Own("FarmShowCircle", function() A:HideVisuals() end)

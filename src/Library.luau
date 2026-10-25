@@ -497,8 +497,33 @@ do
     end
 end
 do
+    function Library:SetMenuMouseCapture(State)
+        local Run = game:GetService("RunService")
+        if State then
+            if not Library.MenuMouseBound then
+                Library.MenuMouseBound = true
+                Library.MenuMouseOriginal = UserInput.MouseBehavior
+                Run:BindToRenderStep("NeoperroMenuMouse", Enum.RenderPriority.Last.Value + 2, function()
+                    if not Library.Destroyed and Library.WindowVisible then
+                        UserInput.MouseBehavior = Enum.MouseBehavior.Default
+                        UserInput.MouseIconEnabled = true
+                    end
+                end)
+            end
+            UserInput.MouseBehavior = Enum.MouseBehavior.Default
+        elseif Library.MenuMouseBound then
+            Run:UnbindFromRenderStep("NeoperroMenuMouse")
+            Library.MenuMouseBound = false
+            if UserInput.MouseBehavior == Enum.MouseBehavior.Default and Library.MenuMouseOriginal then
+                UserInput.MouseBehavior = Library.MenuMouseOriginal
+            end
+            Library.MenuMouseOriginal = nil
+        end
+    end
     function Library:ChangeVisible(State)
         Library.WindowVisible = State
+        Library:SetMenuMouseCapture(State)
+        if State and Library.Automation then Library.Automation:ReleaseAim(); Library.Automation:StopMovement() end
         UserInput.MouseIconEnabled = true
         if not State and Library.WindowInstance then Library.WindowInstance:ClosePopups() end
         for _, Entry in ipairs(Library.Drawings) do
@@ -521,6 +546,7 @@ do
     end
     function Library.SelfDestruct()
         if Library.Destroyed then return end
+        Library:SetMenuMouseCapture(false)
         if Library.Automation then pcall(Library.Automation.Destroy, Library.Automation) end
         if Library.Features then pcall(Library.Features.Destroy, Library.Features) end
         Library.Destroyed = true

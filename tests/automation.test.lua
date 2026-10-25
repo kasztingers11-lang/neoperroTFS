@@ -2,6 +2,8 @@
 local AutoFactory = LoadSource("Automation")
 local ShopFactory = LoadSource("ShopAdapter")
 local GunFactory = LoadSource("Features")
+local NavFactory = LoadSource("Navigation")
+local AmmoFactory = LoadSource("AmmoAdapter")
 local passed, failed = 0, 0
 local function test(name, fn)
     local ok, message = pcall(fn)
@@ -30,12 +32,30 @@ end
 function V.__add(a,b) return Vector3.new(a.X+b.X,a.Y+b.Y,a.Z+b.Z) end
 function V.__sub(a,b) return Vector3.new(a.X-b.X,a.Y-b.Y,a.Z-b.Z) end
 function V.__mul(a,b) if type(a)=="number" then a,b=b,a end; return Vector3.new(a.X*b,a.Y*b,a.Z*b) end
+function V.__div(a,b) return Vector3.new(a.X/b,a.Y/b,a.Z/b) end
+function V.__unm(a) return Vector3.new(-a.X,-a.Y,-a.Z) end
 function V:Dot(b) return self.X*b.X+self.Y*b.Y+self.Z*b.Z end
+function V:Cross(b) return Vector3.new(self.Y*b.Z-self.Z*b.Y,self.Z*b.X-self.X*b.Z,self.X*b.Y-self.Y*b.X) end
 Vector3 = {new=function(x,y,z) return setmetatable({X=x,Y=y,Z=z},V) end}
 Vector3.zero=Vector3.new(0,0,0)
 Vector2={new=function(x,y) return {X=x,Y=y} end}
-CFrame={new=function(p) return {Position=p or Vector3.zero} end,
-    lookAt=function(p,t) return {Position=p,Target=t} end}
+local CF={}; CF.__index=CF
+function CF:VectorToWorldSpace(v) return self.Right*v.X+self.Up*v.Y+self.Back*v.Z end
+function CF:VectorToObjectSpace(v) return Vector3.new(v:Dot(self.Right),v:Dot(self.Up),v:Dot(self.Back)) end
+function CF:Inverse()
+    local out=setmetatable({Right=Vector3.new(self.Right.X,self.Up.X,self.Back.X),
+        Up=Vector3.new(self.Right.Y,self.Up.Y,self.Back.Y),Back=Vector3.new(self.Right.Z,self.Up.Z,self.Back.Z)},CF)
+    out.Position=out:VectorToWorldSpace(-self.Position); return out
+end
+function CF.__mul(a,b)
+    return setmetatable({Position=a.Position+a:VectorToWorldSpace(b.Position),Right=a:VectorToWorldSpace(b.Right),
+        Up=a:VectorToWorldSpace(b.Up),Back=a:VectorToWorldSpace(b.Back)},CF)
+end
+CFrame={new=function(p) return setmetatable({Position=p or Vector3.zero,Right=Vector3.new(1,0,0),Up=Vector3.new(0,1,0),Back=Vector3.new(0,0,1)},CF) end,
+    lookAt=function(p,t)
+        local forward=(t-p).Unit; local right=forward:Cross(Vector3.new(0,1,0)).Unit
+        return setmetatable({Position=p,Right=right,Up=right:Cross(forward),Back=-forward},CF)
+    end}
 Color3={fromRGB=function(...) return {...} end}
 math.clamp=function(n,a,b) return math.min(b, math.max(a,n)) end
 table.find=function(t,v) for i,x in ipairs(t) do if x==v then return i end end end
@@ -69,7 +89,7 @@ function Methods:EquipTool(tool) tool.Parent:Remove(tool); self.Parent:Add(tool)
 typeof=function(x) return getmetatable(x)==Obj and "Instance" or type(x) end
 Enum={KeyCode={LeftShift="LShift",RightShift="RShift"}, UserInputType={MouseButton1="M1"},
     RaycastFilterType={Exclude="Exclude"}, MouseBehavior={LockCenter="Center"},
-    CameraMode={Classic="Classic"},RenderPriority={Last={Value=2000}},PathStatus={Success="Success"},
+    CameraMode={Classic="Classic"},RenderPriority={Camera={Value=200},Last={Value=2000}},PathStatus={Success="Success"},
     PathWaypointAction={Jump="Jump"}}
 RaycastParams={new=function() return {} end}
 local Now, Active, Presses, Releases, ShiftPresses, ShiftReleases, Tasks
@@ -88,6 +108,7 @@ local function setup(native)
     Now=100; Active=true; Presses=0; Releases=0; ShiftPresses=0; ShiftReleases=0; Tasks={}
     local p=instance("Player"); p.CharacterAdded=signal(); p.CameraMode="FirstPerson"
     p.CameraMinZoomDistance=0.5; p.CameraMaxZoomDistance=12
+    local mouse={X=500,Y=400}; function p:GetMouse() return mouse end
     local character=instance("Character"); p.Character=character
     local h=instance("Humanoid","Humanoid",character,{Health=100})
     local root=instance("HumanoidRootPart","Part",character,{Position=Vector3.new(0,3,0)})
@@ -112,6 +133,9 @@ local function setup(native)
     local world=instance("Workspace"); local zombies=instance("Zombies","Folder",world)
     world.CurrentCamera={CFrame=CFrame.new(Vector3.new(0,5,0)),ViewportSize=Vector2.new(1000,800)}
     function world.CurrentCamera:WorldToViewportPoint(point) return Vector3.new(point.X,point.Z,1),true end
+    function world.CurrentCamera:ScreenPointToRay(x,y)
+        return {Origin=self.CFrame.Position,Direction=self.CFrame:VectorToWorldSpace(Vector3.new((x-500)/500,-(y-400)/500,-1)).Unit}
+    end
     function world:Raycast(origin,direction,params)
         if self.Ray then return self.Ray(origin,direction,params) end
         if direction.Y < -9 and math.abs(direction.X)<0.001 and math.abs(direction.Z)<0.001 then
@@ -126,13 +150,13 @@ local function setup(native)
             GetWaypoints=function(self) return {{Position=root.Position},{Position=self.To,Action="Walk"}} end}
     end
     local services={Players={LocalPlayer=p},RunService=run,UserInputService=input,
-        PathfindingService=paths,ReplicatedStorage=rs}
+        PathfindingService=paths,ReplicatedStorage=rs,Lighting={GetMinutesAfterMidnight=function() return 390 end}}
     game={GetService=function(_,name) return assert(services[name],name) end}; workspace=world
     local flags={UpgradeWeapon="Select weapon",UpgradePriority="Select upgrade",UpgradeMode="Selected upgrade only",
         FarmDistance=24,FarmAvoidWalls=true,FarmUseSprint=true,CameraDistance=10,UpgradeNotify=true,UpgradeShopFallback=true}
     local lib={Flags=flags,Items={},WindowVisible=false}
     local keys={"UpgradeWeapon","UpgradePriority","UpgradeMode","UpgradeEnabled","UpgradeShopFallback","FarmAutoShoot",
-        "FarmKeepDistance","FarmUseSprint","FarmShowDistance","FarmShowCircle","CameraThirdPerson","CameraDistance"}
+        "FarmKeepDistance","FarmUseSprint","FarmShowDistance","FarmShowCircle","FarmAutoRefill","CameraThirdPerson","CameraDistance"}
     for _,key in ipairs(keys) do
         local item={Callback=function() end,List={}}
         function item:Set(v) flags[key]=v; self.Callback(v) end
@@ -184,10 +208,15 @@ local function setup(native)
         return "waiting",self.Pending
     end
     function shop:Destroy() self.Alive=false end
+    local refill={}
+    function refill:Poll() return "idle" end
+    function refill:Destroy() self.Destroyed=true end
+    function refill:Needs(tool) return tool and tool.CurrentValues.Ammo.Value<=20 end
+    function refill:Nearest() return nil,math.huge end
     local c={P=p,H=h,Root=root,Bag=bag,Backgear=backgear,Levels=levels,World=world,Run=run,Input=input,RS=rs,
-        Result=result,Cash=cash,Lib=lib,Guns=guns,Shop=shop,Weapon=weapon,Zombie=zombie,Notices=notices,Paths=paths}
+        Result=result,Cash=cash,Lib=lib,Guns=guns,Shop=shop,Weapon=weapon,Zombie=zombie,Notices=notices,Paths=paths,Refill=refill,Mouse=mouse}
     if native then return c end
-    c.A=AutoFactory(lib,win,guns,function() return shop end)
+    c.A=AutoFactory(lib,win,guns,function() return shop end,NavFactory,function() return refill end)
     return c
 end
 
@@ -225,22 +254,23 @@ test("head target stays until death, then switches, and respects range and walls
     c.World.Ray=function() return {Instance=wall} end
     eq(c.A:SelectTarget(c.Root.Position,100),nil)
 end)
-test("render aims at the head before native press and releases on death/menu/focus",function()
+test("pre-fire head aim compensates free cursor and releases on death/menu/focus",function()
     local c=setup(); local t=c.Weapon("Pistol",c.P.Character); local z=c.Zombie("A",8,0)
     c.Guns:BindWeapon(t); c.Lib.Items.FarmAutoShoot:Set(true); c.A:SnapshotZombies()
-    c.A:Render(); eq(Presses,0); eq(c.World.CurrentCamera.CFrame.Target,z.Head.Position)
-    c.A:Render(); eq(Presses,1); eq(c.Input.MouseBehavior,"Center")
-    c.Lib.WindowVisible=true; c.A:Render(); eq(Releases,1); eq(c.Input.MouseBehavior,"Default")
-    c.Lib.WindowVisible=false; Now=Now+1; c.A:Render(); c.A:Render(); eq(Presses,2)
+    c.Mouse.X=120; c.Mouse.Y=710
+    c.A:PreRender(); eq(Presses,1); eq(c.A.LastAimPoint,z.Head.Position)
+    assert(c.A.AimError<0.001); eq(c.Input.MouseBehavior,"Default")
+    c.Lib.WindowVisible=true; c.A:PreRender(); eq(Releases,1)
+    c.Lib.WindowVisible=false; Now=Now+1; c.A:PreRender(); eq(Presses,2)
     Active=false; c.Input.WindowFocusReleased:Fire(); eq(Releases,1)
     Active=true; c.Input.WindowFocused:Fire(); eq(Releases,2)
-    z.Humanoid.Health=0; c.A:Render(); eq(c.A.Target,nil)
+    z.Humanoid.Health=0; c.A:PreRender(); eq(c.A.Target,nil)
 end)
 test("manual mouse is not owned and unload completes an unfocused owned release",function()
     local c=setup(); local t=c.Weapon("Pistol",c.P.Character); c.Zombie("A",8,0)
     c.Guns:BindWeapon(t); c.Lib.Items.FarmAutoShoot:Set(true); c.A:SnapshotZombies()
-    c.Input.PhysicalMouse=true; c.A:Render(); c.A:Render(); eq(Presses,0)
-    c.Input.PhysicalMouse=false; c.A:Render(); eq(Presses,1)
+    c.Input.PhysicalMouse=true; c.A:PreRender(); eq(Presses,0)
+    c.Input.PhysicalMouse=false; c.A:PreRender(); eq(Presses,1)
     Active=false; c.A:Destroy(); Active=true; c.Input.WindowFocused:Fire(); eq(Releases,1)
 end)
 test("empty clips use native reload once, charge guns fail closed",function()
@@ -249,12 +279,13 @@ test("empty clips use native reload once, charge guns fail closed",function()
     c.Guns:BindWeapon(t); c.A:Shoot(t); c.A:Shoot(t); eq(#Tasks,1); flush(); eq(c.Guns.Reloaded,true)
     t.CurrentValues.Clip.Value=5; t.CurrentValues.FireType.Value="Charge"; c.A:Shoot(t); eq(Presses,0)
 end)
-test("third person clips camera and restores all native camera settings",function()
+test("third person restores the freely controlled view after the native fire phase",function()
     local c=setup(); local z=c.Zombie("A",10,0)
     c.Lib.Items.CameraThirdPerson:Set(true); eq(c.P.CameraMode,"Classic"); eq(c.P.CameraMinZoomDistance,10)
-    c.World.Ray=function() return {Position=Vector3.new(-2,4,0),Normal=Vector3.new(1,0,0)} end
-    c.A:Aim(c.World.CurrentCamera,c.Root,z); eq(c.World.CurrentCamera.CFrame.Position.X,-1.6)
-    eq(c.World.CurrentCamera.CFrame.Target,z.Head.Position)
+    local visible=c.World.CurrentCamera.CFrame
+    c.Mouse.X=100; c.Mouse.Y=50
+    c.A:Aim(c.World.CurrentCamera,c.Root,z); assert(c.A.AimError<0.001)
+    eq(c.Input.MouseBehavior,"Default"); c.A:Render(); eq(c.World.CurrentCamera.CFrame,visible)
     c.Lib.Items.CameraThirdPerson:Set(false); eq(c.P.CameraMode,"FirstPerson")
     eq(c.P.CameraMinZoomDistance,0.5); eq(c.P.CameraMaxZoomDistance,12)
     c.A:Destroy(); eq(c.Input.MouseBehavior,"Default")
@@ -273,6 +304,69 @@ test("retreat rejects walls and cliffs, choosing an available side route",functi
     local escape=c.A:ChooseEscape(c.Root,24); assert(escape and escape.X>=-0.01)
     c.World.Block=function() return {Distance=1} end; eq(c.A:ChooseEscape(c.Root,24),nil)
     c.World.Block=nil; c.World.Ray=function() return nil end; eq(c.A:ChooseEscape(c.Root,24),nil)
+end)
+test("navmesh route follows a corner detour instead of walking through the wall",function()
+    local c=setup(); c.Zombie("A",8,0); c.A:SnapshotZombies()
+    function c.Paths:CreatePath()
+        return {Status="Success",ComputeAsync=function(self,_,to) self.To=to end,
+            GetWaypoints=function(self) return {{Position=c.Root.Position},
+                {Position=Vector3.new(0,3,7)},{Position=Vector3.new(-10,3,7)},{Position=self.To}} end}
+    end
+    c.World.Block=function(_,_,d) if d.X < -0.1 and math.abs(d.Z)<1 then return {Distance=1} end end
+    c.A:ChooseEscape(c.Root,24); flush()
+    local nav=c.A.Navigation; assert(nav.Route and #nav.Route==4)
+    local direction=c.A:ChooseEscape(c.Root,24)
+    assert(direction.Z>0.9); assert(math.abs(direction.X)<0.01)
+end)
+test("reset invalidates a pending retreat plan and radius has exit hysteresis",function()
+    local c=setup(); local z=c.Zombie("A",8,0); c.A:SnapshotZombies()
+    local nav=c.A.Navigation; nav:Update(c.H,c.Root,c.A.Zombies,24)
+    assert(nav.Planning); nav:Reset(); flush(); eq(nav.Route,nil)
+    nav:Update(c.H,c.Root,c.A.Zombies,24); eq(nav.Active,true)
+    z.Head.Position=Vector3.new(27,4.5,0); nav:Update(c.H,c.Root,c.A.Zombies,24); eq(nav.Active,true)
+    z.Head.Position=Vector3.new(35,4.5,0); eq(nav:Update(c.H,c.Root,c.A.Zombies,24),nil); eq(nav.Active,false)
+end)
+test("nearby exits are tried when distant navigation goals are unreachable",function()
+    local c=setup(); c.Zombie("A",8,0); c.A:SnapshotZombies(); local tried={}
+    function c.Paths:CreatePath()
+        return {Status="NoPath",ComputeAsync=function(self,from,to)
+            table.insert(tried,(to-from).Magnitude); self.To=to
+            if (to-from).Magnitude<14 then self.Status="Success" end
+        end,GetWaypoints=function(self) return {{Position=c.Root.Position},{Position=self.To}} end}
+    end
+    c.A:ChooseEscape(c.Root,37); flush()
+    eq(#tried,3); assert(tried[1]>30 and tried[3]<14)
+    assert(c.A.Navigation.Route and #c.A.Navigation.Route==2)
+end)
+test("body steering rejects a cliff in the middle of the segment",function()
+    local c=setup(); c.Zombie("A",8,0); c.A:SnapshotZombies()
+    c.World.Ray=function(origin,direction)
+        if direction.Y< -9 then
+            if origin.X < -2 and origin.X > -5 then return nil end
+            return {Position=Vector3.new(origin.X,0,origin.Z),Normal=Vector3.new(0,1,0)}
+        end
+    end
+    local d=c.A:ChooseEscape(c.Root,24); assert(d)
+    assert(d.X> -0.3 or math.abs(d.Z)>0.7)
+end)
+test("aim binding runs before native gun and view binding runs after it",function()
+    local c=setup(); local priorities={}
+    c.Run.BindToRenderStep=function(self,name,priority,fn) priorities[name]=priority; self.Bindings[name]=fn end
+    c.Lib.Items.FarmAutoShoot:Set(true)
+    eq(priorities.NeoperroAutomationAim,201); eq(priorities.NeoperroAutomation,2001)
+    c.Lib.Items.FarmAutoShoot:Set(false); eq(next(c.Run.Bindings),nil)
+end)
+test("ammo interaction pauses firing but walking to a box can still target heads",function()
+    local c=setup(); c.Weapon("Pistol",c.P.Character); c.Zombie("A",8,0)
+    c.Lib.Items.FarmAutoShoot:Set(true); c.A:SnapshotZombies()
+    c.A.Travelling=true; c.A.TravelPurpose="ammo"; c.A:PreRender(); eq(Presses,1)
+    c.Refill.Pending={}; c.A:PreRender(); eq(Releases,1); eq(c.A.Target,nil)
+    c.Refill.Pending=nil; c.A.TravelPurpose="shop"; Now=Now+1; c.A:PreRender(); eq(Presses,1)
+end)
+test("target acquisition sees a newly spawned head before the next slow step",function()
+    local c=setup(); c.Weapon("Pistol",c.P.Character); c.Lib.Items.FarmAutoShoot:Set(true)
+    c.A:SnapshotZombies(); Now=Now+0.04; local z=c.Zombie("New",8,0)
+    c.A:PreRender(); eq(c.A.Target.Model,z.Model); assert(c.A.AimError<0.001)
 end)
 test("upgrade serializes requests and completion waits for acknowledgement",function()
     local c=setup(); c.Weapon("Pistol"); c.A:ScanInventory(); c.Lib.Items.UpgradeWeapon:Set("Pistol")
@@ -356,6 +450,58 @@ test("real gun controller suspension restores native values and keeps native upg
     guns:SetSuspended(false); eq(v.AttackSpeed.Value,3600)
     guns:Destroy(); eq(v.AttackSpeed.Value,400); eq(v.Spread.Value,1.5); eq(up[1],recoil)
     assert(refreshed>=3)
+end)
+
+local function ammoFixture()
+    local c=setup(true); local t=c.Weapon("Pistol",c.P.Character)
+    instance("Reloading","BoolValue",t,{Value=false}); t.Enabled=true
+    instance("MaxAmmo","NumberValue",t.CurrentValues,{Value=100})
+    t.CurrentValues.Ammo.Value=10
+    local box=instance("AmmoBox","Model",instance("Upgrades","Folder",instance("Map","Folder",c.World)))
+    box.PrimaryPart=instance("Handle","Part",box,{Position=Vector3.new(3,3,0)})
+    instance("Time","NumberValue",box,{Value=5}); instance("Ammo","NumberValue",box,{Value=500})
+    instance("MaxAmmo","NumberValue",box,{Value=500})
+    local scripts=instance("PlayerScripts","Folder",c.P)
+    local module=instance("MainGui","ModuleScript",instance("GuiManager","Folder",scripts))
+    local init=function() end
+    local remote=instance("RemoteRefillAmmo","RemoteFunction",c.RS)
+    local manager={GetMulti=function() return 2 end}
+    local calls=0
+    local fn=function()
+        calls=calls+1
+        if c.Throw then error("refill error") end
+        if not c.Reject then t.CurrentValues.Ammo.Value=100 end
+    end
+    local up={[3]=false,[6]=manager,[7]=remote}
+    require=function(m) eq(m,module); return {Init=init} end
+    getfenv=function() return {AmmoCrate=fn} end
+    debug={getinfo=function() return {nups=11} end,getupvalue=function(_,i) return up[i] end,
+        setupvalue=function(_,i,v) up[i]=v end}
+    c.Ammo=AmmoFactory(); c.Tool=t; c.Box=box; c.Calls=function() return calls end
+    return c
+end
+test("ammo refill requires nearby stocked box and preserves native timing",function()
+    local c=ammoFixture(); eq(c.Ammo:Needs(c.Tool),true)
+    eq(c.Ammo:Duration(c.Box,c.Ammo:Context()),0.5)
+    c.Root.Position=Vector3.new(30,3,0); eq(c.Ammo:Begin(c.Tool,c.Box,c.Root),false); eq(c.Calls(),0)
+    c.Root.Position=Vector3.new(0,3,0); c.Box.Ammo.Value=0
+    eq(c.Ammo:Begin(c.Tool,c.Box,c.Root),false); eq(c.Calls(),0)
+    c.Box.Ammo.Value=500; assert(c.Ammo:Begin(c.Tool,c.Box,c.Root)); eq(c.Ammo:Poll(),"waiting")
+    eq(c.Ammo:Begin(c.Tool,c.Box,c.Root),false); flush(); eq(c.Calls(),1)
+    eq(c.Ammo:Poll(),"refilled"); eq(c.Box.Time.Value,5); eq(c.Tool.CurrentValues.Clip.Value,5)
+end)
+test("rejected native ammo refill reports failure without inventing ammunition",function()
+    local c=ammoFixture(); c.Reject=true
+    assert(c.Ammo:Begin(c.Tool,c.Box,c.Root)); flush()
+    eq(c.Ammo:Poll(),"failed"); eq(c.Tool.CurrentValues.Ammo.Value,10)
+    eq(c.Ammo:Begin(c.Tool,c.Box,c.Root),false); eq(c.Box.Time.Value,5)
+end)
+test("ammo selection respects creator-only deployables and unavailable stock",function()
+    local c=ammoFixture(); instance("CreatorOnly","BoolValue",c.Box,{Value=true})
+    instance("Creator","ObjectValue",c.Box,{Value={}})
+    eq(c.Ammo:Nearest(c.Root),nil)
+    c.Box.Creator.Value=c.P; eq(c.Ammo:Nearest(c.Root),c.Box)
+    c.Box.Ammo.Value=0; eq(c.Ammo:Nearest(c.Root),nil)
 end)
 
 -- Native shop adapter fixture: same row/cash/confirmation contract, no server claims.
