@@ -2,16 +2,20 @@
 
 The original [Abyss Drawing layout](https://github.com/Eazvy/UILibs/blob/main/Librarys/Abyss/Example), with clean text, black surfaces and a static dark-red glow beneath section titles and the selected tab. Subtle motion preserves the rectangular layout; there is no color cycling.
 
-The current implementation focuses on **gun mods only**. The other Main sections remain design previews and do not run farming, shop purchases or camera automation. The old main/rage demo controls and rage tab have been removed.
+The Main tab includes gun mods, native-input head-lock farming, distance-based retreat, inventory-driven cash upgrades and third person. These offline implementations have passed mocked behavioral checks and Luau analysis; the new automation still needs an in-game check. All automation starts off. The original rectangular UI structure and exact logo are preserved.
 
 ## Main tab
 
 - **GUN MODS:** Rapid Fire with a 1–120 shots/second slider (default 60), No Spread and No Recoil. Wallbang was removed. Infinite Ammo, Instant Reload, Infinite Range and Zombie Piercing remain marked unavailable and cannot activate.
-- **AUTOFARM:** auto shoot zombies, distance checker, a 5–100 stud distance slider, distance text/circle toggles, wall avoidance and Shift sprint preferences.
-- **AUTO UPGRADE:** enabled, weapon, priority upgrade, selected-only/all-upgrades mode, shop fallback and completion alerts. Clearing the weapon choice hides the dependent priority/mode fields; selecting a weapon restores them. The mode hint explains whether to stop after one upgrade or max the weapon.
-- **THIRD PERSON:** enabled and a 4–24 stud camera distance slider.
+- **AUTOFARM:** hard camera lock on a live zombie's Head, normal mouse firing, automatic target change after death, native weapon range and visible targets only. Empty clips use the native reload function; an unequipped gun is equipped through Humanoid. Charge weapons require manual fire. Retreat uses a 5–100 stud radius, body clearance and ground checks, alternative headings around walls, stuck detection and optional native Shift sprint. Optional distance text and a dark-red ground circle show the radius.
+- **AUTO UPGRADE:** scans Backpack, Character and owned Backgear, including new/replaced guns and respawns. Select an owned gun, then one of its actual upgrade categories. Selected-only mode stops at that category's maximum; All upgrades tries the priority first and then the remaining categories. Achievement locks and mutually exclusive choices can prevent a complete maximum. No fake Pistol or generic Damage/Range choices remain.
+- **THIRD PERSON:** normal third-person zoom, 4–24 studs, with a clipped camera behind the player while head locking. Disabling or unloading restores the previous camera mode and zoom limits.
 
-Pistol and the upgrade categories in AUTO UPGRADE are preview choices. Those controls save menu state only.
+Hide the UI with RightShift and focus Roblox to let firing, retreat and purchases run. Showing the menu, focusing a text box, losing focus, dying or unloading releases owned fire/movement input. Manual mouse/Shift holds are not taken over. If unloaded while unfocused, a single temporary focus listener finishes a pending native release and disconnects itself.
+
+Auto buy currently means **upgrades for guns you own**, using the native shop's game-cash buttons. It waits for the round to end and for InsideShop; optional travel follows normal pathfinding waypoints to the shop, cancels when a wave starts and retries blocked paths. Close the native shop menu before automatic buying. This does not buy weapons, passes or premium currency items, or open the shop remotely.
+
+Only one purchase can be pending. The adapter reads native prices/locks and invokes the native Lua button handler; it does not synthesize money, levels or weapon stats. Gun mods are temporarily restored during that transaction so native upgrade math sees native values. A matching server refresh plus an increased level is required before continuing or notifying completion. A six-second timeout stops automation without another buy or an invented refund. That weapon remains blocked for this script session after an unconfirmed purchase; check the native shop manually. Loading profiles restores dynamic selections only when the corresponding owned gun/category exists.
 
 ## Gun adapter
 
@@ -19,7 +23,7 @@ Pistol and the upgrade categories in AUTO UPGRADE are preview choices. Those con
 
 The failed ammo, reload, range and piercing methods have been removed. Their controls immediately return to off and explain that no working method has been verified; loading an old profile cannot activate them. Native ammo, reload time, range, penetration, perk flags and firing packets remain untouched. A working server-compatible replacement for those abilities has not been established. See `VALIDATION.md` for the evidence and limits.
 
-Switching mods off, dropping a weapon or unloading restores owned changes and scoped closure references. If the game updates a value while a mod is active, that update becomes the restoration baseline. Native cached spread is refreshed after restoration. Newly initialized/replaced gun scripts can bind on a later update; retries are limited to once per second per gun. One gun failing to bind does not stop other guns from updating. With every gun mod off, the feature heartbeat disconnects. There are no autofire, camera-aim, movement or purchase loops in this build.
+Switching mods off, dropping a weapon or unloading restores owned changes and scoped closure references. If the game updates a value while a mod is active, that update becomes the restoration baseline. Native cached spread is refreshed after restoration. Newly initialized/replaced gun scripts can bind on a later update; retries are limited to once per second per gun. One gun failing to bind does not stop other guns from updating. The gun heartbeat disconnects when gun mods and auto shoot are off.
 
 ## Run and controls
 
@@ -28,7 +32,7 @@ Run `loader.luau` in Real, or execute `dist/neoperroTFS.luau`.
 - **RightShift** hides and reopens the UI by default.
 - In **settings → interface**, click **show / hide UI**, then press your new key. Escape cancels capture. The capture key does not also toggle the menu.
 - Use **reset UI bind to RightShift** to restore the default.
-- **show keybind list** controls the floating panel, initially hidden because this preview has no feature keybinds. The panel has separate, padded rows and resizes when active bindings change. It hides with the menu.
+- **show keybind list** controls the floating panel, initially hidden. The panel has separate, padded rows and resizes when active bindings change. It hides with the menu.
 - Drag the menu header or keybind panel header to move them.
 - **save profile / load profile** preserve controls, the UI shortcut, and control keys with their Hold/Toggle/Always modes.
 - **unload UI** removes the UI and disconnects its event handlers.
@@ -45,9 +49,11 @@ The supplied image is unchanged: 1254 × 1254, 220,436 bytes. SHA-256: `1e4d00f4
 
 ## Source and performance
 
-`src/Library.luau` contains the adapted Abyss renderer; `src/App.luau` declares the menu; `src/Features.luau` owns gun changes and cleanup. Run `node build.mjs` to regenerate `dist/neoperroTFS.luau` and the small generated UI textures. No npm dependencies are required.
+`src/Library.luau` contains the adapted Abyss renderer; `src/App.luau` declares the menu; `src/Features.luau` owns gun changes; `src/Automation.luau` owns inventory, input, camera and movement; `src/ShopAdapter.luau` wraps the native cash-upgrade UI. The shop closure layout is guarded against the previously inspected v312 shape and stops on unsupported layouts. Run `node build.mjs` to regenerate `dist/neoperroTFS.luau` and the small generated UI textures. No npm dependencies are required.
 
-Run `node --test tests/build.test.mjs` for offline packaging, exact-image and deterministic-build checks. These do not simulate Roblox or prove server damage.
+Run `node --test tests/build.test.mjs` for four packaging checks. With Python and `lupa` installed, run `python tests/run_behavior.py` for 22 behavioral checks of the actual factories using explicit Roblox/input/shop mocks. `--deps PATH` can reuse an existing Python dependency directory. The harness removes only `: any` annotations; it does not replace production logic. Mocks do not prove real server damage, purchase acceptance, camera appearance or map navigation.
+
+Automation uses one throttled heartbeat, event-driven inventory invalidation with a one-second active rescan, and one render binding only while farming or distance visuals need it. Camera aiming runs after the native camera. Escape planning runs at 10 Hz, drawing at 20 Hz, and circle objects are allocated once and reused. Purchases are serialized and rate-limited. All owned listeners, drawings, callback wrappers and camera state are cleaned up on unload, apart from the one-shot pending-input release described above.
 
 The UI retains four shared engine event connections. A single extra render connection exists only while transitions are active and disconnects when idle. There are no animated accent broadcasts, custom cursor loops or clock loops. The glow remains a static texture. These are structural reductions, not a measured FPS claim.
 

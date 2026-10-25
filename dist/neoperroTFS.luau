@@ -1,4 +1,4 @@
--- neoperroTFS: original Abyss Drawing layout, gun mods only.
+-- neoperroTFS: original Abyss Drawing layout and native-input automation.
 local Previous = getgenv().NeoperroTFS
 if Previous and Previous.Destroy then Previous:Destroy() end
 local function decodeBase64(Input)
@@ -367,6 +367,7 @@ do
                 end
             end
         end
+        if Library.Automation then Library.Automation:RestoreSelection(Values) end
     end
     Utility.AddFolder = function(GetFolder)
         local Folder = isfolder(GetFolder)
@@ -552,6 +553,7 @@ do
     end
     function Library.SelfDestruct()
         if Library.Destroyed then return end
+        if Library.Automation then pcall(Library.Automation.Destroy, Library.Automation) end
         if Library.Features then pcall(Library.Features.Destroy, Library.Features) end
         Library.Destroyed = true
         if Library.MotionConnection then Library.MotionConnection:Disconnect(); Library.MotionConnection = nil end
@@ -2763,8 +2765,8 @@ do
                         end
                         Dropdown.Selected = Selected
                         DropdownValue.Text = Selected
-                        Dropdown.Callback(Dropdown.Selected)
                         Library.Flags[Options.Flag] = Dropdown.Selected
+                        Dropdown.Callback(Dropdown.Selected)
                     end
                     -- Dependent fields keep their reserved layout space and cannot receive
                     -- pointer input while hidden, including after changing tabs.
@@ -3497,6 +3499,7 @@ return Library
 
 end)()
 
+
 local CreateFeatures = (function()
 -- Gun mods only. Native ammo, reload, range, penetration and network data are untouched.
 return function(Library: any, Window: any)
@@ -3505,7 +3508,7 @@ return function(Library: any, Window: any)
     local F: any = {Alive = true, Connections = {}, Weapons = {}, Values = {},
         Retries = {}, Callbacks = {}, Notices = {}, LastApply = 0}
     local Flags = Library.Flags
-    local Keys = {"GunRapidFire", "GunNoSpread", "GunNoRecoil"}
+    local Keys = {"GunRapidFire", "GunNoSpread", "GunNoRecoil", "FarmAutoShoot"}
     local Unavailable = {
         GunInfiniteAmmo = "Infinite ammo", GunInstantReload = "Instant reload",
         GunInfiniteRange = "Infinite range", GunPiercing = "Zombie piercing"
@@ -3598,16 +3601,16 @@ return function(Library: any, Window: any)
         B = {Tool = Tool, Script = Script, Environment = Environment, Fire = Fire}
         for Index = 1, math.min(debug.getinfo(Fire).nups, 128) do
             local V = debug.getupvalue(Fire, Index)
-            if type(V) == "table" and type(V.AddRecoil) == "function" then
+            if type(V) == "table" and type(V.GetIgnoreList) == "function" then B.Manager = V end
+            if not B.RecoilIndex and type(V) == "table" and type(V.AddRecoil) == "function" then
                 B.RecoilIndex, B.Recoil = Index, V
-                break
             end
         end
         if B.RecoilIndex then
             local Recoil = B.Recoil
             B.RecoilProxy = setmetatable({}, {__index = Recoil})
             function B.RecoilProxy:AddRecoil(...)
-                if Flags.GunNoRecoil ~= true then return Recoil.AddRecoil(Recoil, ...) end
+                if Flags.GunNoRecoil ~= true or F.Suspended then return Recoil.AddRecoil(Recoil, ...) end
                 return nil
             end
             debug.setupvalue(Fire, B.RecoilIndex, B.RecoilProxy)
@@ -3623,16 +3626,16 @@ return function(Library: any, Window: any)
         return B
     end
     function F:ApplyTool(Tool)
-        local BindingNeed = Flags.GunNoSpread == true or Flags.GunNoRecoil == true
+        local BindingNeed = Flags.GunNoSpread == true or Flags.GunNoRecoil == true or Flags.FarmAutoShoot == true
         local B = BindingNeed and self:BindWeapon(Tool) or self.Weapons[Tool]
         local V = Tool:FindFirstChild("CurrentValues")
         if not V then return end
         for _, Prefix in ipairs({"", "Alt"}) do
-            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Flags.GunRapidFire == true)
-            Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Flags.GunRapidFire == true)
+            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Flags.GunRapidFire == true and not self.Suspended)
+            Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Flags.GunRapidFire == true and not self.Suspended)
         end
-        Assign(V:FindFirstChild("FireType"), "FullAuto", Flags.GunRapidFire == true)
-        local SpreadEnabled = Flags.GunNoSpread == true and B ~= nil and B.UpdateSpread ~= nil
+        Assign(V:FindFirstChild("FireType"), "FullAuto", Flags.GunRapidFire == true and not self.Suspended)
+        local SpreadEnabled = Flags.GunNoSpread == true and not self.Suspended and B ~= nil and B.UpdateSpread ~= nil
         local SpreadChanged = false
         for _, Prefix in ipairs({"", "Zoom", "Alt", "AltZoom"}) do
             local MinSpread = V:FindFirstChild(Prefix .. "Spread")
@@ -3698,6 +3701,10 @@ return function(Library: any, Window: any)
         self.Queued = true
         task.defer(function() self.Queued = false; if self.Alive then self:Refresh() end end)
     end
+    function F:SetSuspended(State)
+        self.Suspended = State == true
+        self:Refresh()
+    end
     function F:WatchInventory(Parent, Key)
         for _, C in ipairs(self[Key] or {}) do Disconnect(C) end
         self[Key] = {}
@@ -3738,7 +3745,7 @@ return function(Library: any, Window: any)
     Connect(P.ChildAdded, function(Child)
         if Child:IsA("Backpack") then F:WatchInventory(Child, "BackpackConnections") end
     end)
-    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate"}) do
+    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "FarmAutoShoot"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback
@@ -3762,6 +3769,809 @@ end
 
 end)()
 
+
+local CreateShopAdapter = (function()
+-- Native cash-only upgrade UI adapter. It never writes money, levels or gun values.
+return function()
+    local P: any = game:GetService("Players").LocalPlayer
+    local RS: any = game:GetService("ReplicatedStorage")
+    local W: any = workspace
+    local Load: any = require
+    local A: any = {Alive = true, Pending = nil, Context = nil}
+    function A:Levels(Name)
+        local U = P:FindFirstChild("Upgrades")
+        U = U and U:FindFirstChild("GunUpgrades")
+        return U and U:FindFirstChild(Name)
+    end
+    function A:InShop()
+        local V = P:FindFirstChild("InsideShop")
+        return V ~= nil and V.Value == true
+    end
+    function A:BetweenRounds()
+        local Z = W:FindFirstChild("Zombies")
+        local G = P:FindFirstChild("PlayerGui")
+        local Button = G and G:FindFirstChild("VoteSkip", true)
+        return Z ~= nil and #Z:GetChildren() == 0 and Button ~= nil
+            and type(Button.Text) == "string" and Button.Text:find("Ready", 1, true) ~= nil
+    end
+    function A:OwnedTool(Name)
+        local Bag = P:FindFirstChildOfClass("Backpack")
+        return Bag and Bag:FindFirstChild(Name) or P.Character and P.Character:FindFirstChild(Name)
+    end
+    function A:GetContext()
+        if self.Context and self.Context.Frame.Parent then return self.Context end
+        local Scripts = P:FindFirstChild("PlayerScripts")
+        local Manager = Scripts and Scripts:FindFirstChild("GuiManager")
+        local Main = Manager and Manager:FindFirstChild("MainGui")
+        local Module = Main and Main:FindFirstChild("ShopGui")
+        if not Module then return nil end
+        local Shop = Load(Module)
+        if type(Shop) ~= "table" or type(Shop.Next) ~= "function" then return nil end
+        local Update = getfenv(Shop.Next).UpdateUpgrade
+        if type(Update) ~= "function" or debug.getinfo(Update).nups < 18 then return nil end
+        -- Verified v312 layout, checked by object identity/shape before use.
+        local Frame = debug.getupvalue(Update, 4)
+        local Info = debug.getupvalue(Update, 8)
+        if typeof(Frame) ~= "Instance" or Frame.Name ~= "ShopFrame"
+            or typeof(Info) ~= "Instance" then return nil end
+        local NativeFrame: any = Frame
+        local NativeInfo: any = Info
+        if not NativeFrame:FindFirstChild("Upgrade") or not NativeInfo:FindFirstChild("UpgradesFrame") then return nil end
+        self.Context = {Update = Update, Frame = NativeFrame, Information = NativeInfo}
+        return self.Context
+    end
+    function A:TryPurchase(Weapon, OrderedLevels)
+        if not self.Alive or self.Pending then return nil, "Waiting for confirmation" end
+        if not self:BetweenRounds() then return nil, "Waiting for round end" end
+        if not self:InShop() then return nil, "Enter the shop to upgrade" end
+        if not self.Confirmation then return nil, "Native confirmation event unavailable" end
+        local Tool = self:OwnedTool(Weapon)
+        local Money = P:FindFirstChild("ReplicatedMoney")
+        if not Tool or not Money then return nil, "Weapon is not ready" end
+        local Context = self:GetContext()
+        if not Context then return nil, "Shop version unsupported" end
+        if Context.Frame.Visible then return nil, "Close the native shop menu" end
+        local Update = Context.Update
+        local PreviousWeapon = debug.getupvalue(Update, 5)
+        local PreviousMode = Context.Frame.Upgrade.Value
+        local Pending, Reason = nil, "Remaining upgrades locked"
+        local OK, Error = pcall(function()
+            debug.setupvalue(Update, 5, Weapon)
+            Context.Frame.Upgrade.Value = false
+            Update()
+            local Rows = Context.Information.UpgradesFrame.Upgrades
+            for _, Level in ipairs(OrderedLevels) do
+                if Level.Value < Level.MaxValue then
+                    local Row = Rows:FindFirstChild(Level.Name .. " Upgrade")
+                    local Buy = Row and Row:FindFirstChild("Buy")
+                    local Text = Buy and Buy.Text
+                    local Price = type(Text) == "string" and Text:match("^Buy:%s*%$([%d,]+)%s*$")
+                    Price = Price and tonumber((Price:gsub(",", "")))
+                    if Row and Row.Visible and Buy and Buy.Visible and Price and Price >= 0 then
+                        if Price > Money.Value then
+                            Reason = "Waiting for cash ($" .. tostring(Price) .. ")"
+                            -- All-upgrades mode may still buy a cheaper unlocked category.
+                        else
+                            local Handler
+                            for _, Connection in ipairs(getconnections(Row.MouseButton1Click)) do
+                                if Connection.Enabled and type(Connection.Function) == "function" then Handler = Connection.Function; break end
+                            end
+                            if not Handler then Reason = "Native buy handler unavailable"; return end
+                            Pending = {Weapon = Weapon, Level = Level, Before = Level.Value,
+                                Price = Price, Started = os.clock(), Confirmed = false}
+                            -- Register before invoking: a confirmation can arrive immediately.
+                            self.Pending = Pending
+                            Handler()
+                            return
+                        end
+                    end
+                end
+            end
+        end)
+        -- Always restore the native selection, even when a buy callback throws.
+        pcall(debug.setupvalue, Update, 5, PreviousWeapon)
+        pcall(function() Context.Frame.Upgrade.Value = PreviousMode; Update() end)
+        if not OK then
+            if self.Pending then
+                -- A callback may have sent its request before throwing: never retry blindly.
+                self.Pending.Error = tostring(Error)
+                return self.Pending, "Waiting for confirmation"
+            end
+            return nil, "Native shop could not update"
+        end
+        return Pending, Pending and "Waiting for confirmation" or Reason
+    end
+    function A:Poll()
+        local Pending = self.Pending
+        if not Pending then return "idle" end
+        if Pending.Confirmed then
+            self.Pending = nil
+            if Pending.Level.Parent and Pending.Level.Value > Pending.Before then return "confirmed", Pending end
+            return "rejected", Pending
+        end
+        if os.clock() - Pending.Started >= 6 then
+            self.Pending = nil
+            -- Native shop owns its optimistic values. Do not invent a refund or a second buy.
+            return "timeout", Pending
+        end
+        return "waiting", Pending
+    end
+    function A:Destroy()
+        self.Alive = false
+        if self.Confirmation then self.Confirmation:Disconnect() end
+        self.Pending = nil
+    end
+    local Remotes = RS:FindFirstChild("RemoteEvents")
+    local Result = Remotes and Remotes:FindFirstChild("RefreshItemStats")
+    if Result then
+        A.Confirmation = Result.OnClientEvent:Connect(function(Weapon, Structure)
+            if A.Alive and A.Pending and not Structure and A.Pending.Weapon == Weapon then A.Pending.Confirmed = true end
+        end)
+    end
+    return A
+end
+
+end)()
+
+
+local CreateAutomation = (function()
+-- Native input, inventory discovery, movement and cash upgrades. No shot packets are fabricated.
+return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any)
+    local P: any = game:GetService("Players").LocalPlayer
+    local Run = game:GetService("RunService")
+    local Input = game:GetService("UserInputService")
+    local Paths = game:GetService("PathfindingService")
+    local RS: any = game:GetService("ReplicatedStorage")
+    local W: any = workspace
+    local Flags = Library.Flags
+    local A: any = {Alive = true, Connections = {}, Watches = {}, Callbacks = {}, Inventory = {},
+        Shop = CreateShopAdapter(), Zombies = {}, LastScan = -10, LastStep = -10, LastVisual = -10,
+        LastBuy = -10, NextPress = 0, Lines = {}, Notices = {}, InventoryDirty = true}
+    local RenderName = "NeoperroAutomation"
+    local function Connect(Signal, Callback, Bucket)
+        local C = Signal:Connect(Callback)
+        table.insert(Bucket or A.Connections, C)
+        return C
+    end
+    local function Number(Value, Default, Min, Max)
+        if type(Value) ~= "number" or Value ~= Value or math.abs(Value) == math.huge then return Default end
+        return math.clamp(Value, Min, Max)
+    end
+    local function Flat(V) return Vector3.new(V.X, 0, V.Z) end
+    local function Unit(V) return V.Magnitude > 0.001 and V.Unit or Vector3.zero end
+    local function Value(Tool, Name, Default)
+        local Values = Tool and Tool:FindFirstChild("CurrentValues")
+        local V = Values and Values:FindFirstChild(Name)
+        return V and V.Value or Default
+    end
+    local function IsLevel(L)
+        return L and (L:IsA("IntConstrainedValue") or L:IsA("DoubleConstrainedValue"))
+            and type(L.Value) == "number" and type(L.MaxValue) == "number"
+    end
+    local function Status(Key, Message)
+        local Label = Library[Key]
+        if A[Key] ~= Message then
+            A[Key] = Message
+            if Label then Label:Set(#Message > 34 and Message:sub(1, 31) .. "..." or Message) end
+        end
+    end
+    local function Notify(Key, Message)
+        if A.Notices[Key] == Message then return end
+        A.Notices[Key] = Message
+        Window.SendNotification("Normal", Message, 4)
+    end
+    function A:Character()
+        local C = P.Character
+        local H = C and C:FindFirstChildOfClass("Humanoid")
+        local R = C and C:FindFirstChild("HumanoidRootPart")
+        if H and R and H.Health > 0 then return C, H, R end
+        return nil
+    end
+    function A:Focused()
+        return isrbxactive() == true and Input:GetFocusedTextBox() == nil
+            and not Library.WindowVisible and not Library.CapturingMenuKey
+    end
+    function A:ReleaseMouse()
+        if self.MouseOwned then
+            -- Clear only the latch belonging to our own press; native input can ignore releases unfocused.
+            local B = self.PressedBinding
+            if B and B.Environment then B.Environment.mouse1Down = false end
+            self.ReleasePending = true
+        end
+        if self.ReleasePending and isrbxactive() then
+            mouse1release()
+            self.ReleasePending = false
+        end
+        self.MouseOwned = false
+        self.PressedBinding = nil
+    end
+    function A:Sprint(State)
+        if not State and self.SprintOwned then self.SprintReleasePending = true end
+        if self.SprintReleasePending and isrbxactive() then
+            keyrelease(0xA0); self.SprintOwned = false; self.SprintReleasePending = false
+        end
+        if State and not self.SprintOwned and not self.SprintReleasePending and isrbxactive()
+            and not Input:IsKeyDown(Enum.KeyCode.LeftShift) and not Input:IsKeyDown(Enum.KeyCode.RightShift) then
+            keypress(0xA0); self.SprintOwned = true
+        end
+    end
+    function A:StopMovement()
+        if self.MovingHumanoid and self.MovingHumanoid.Parent then
+            self.MovingHumanoid:Move(Vector3.zero, false)
+            if self.Travelling then
+                local R = self.MovingHumanoid.Parent:FindFirstChild("HumanoidRootPart")
+                if R then self.MovingHumanoid:MoveTo(R.Position) end
+            end
+        end
+        self.MovingHumanoid = nil; self.MoveDirection = nil; self.Travelling = nil
+        self:Sprint(false)
+    end
+    function A:ReleaseAim()
+        self:ReleaseMouse()
+        if self.MouseBehavior then Input.MouseBehavior = self.MouseBehavior; self.MouseBehavior = nil end
+        self.Target = nil; self.AimedAt = nil
+    end
+    function A:ScanInventory()
+        local Owned, Names = {}, {"Select weapon"}
+        local function Visit(Parent, Mirror)
+            if not Parent then return end
+            for _, Tool in ipairs(Parent:GetChildren()) do
+                local Name = Tool.Name
+                local Levels = self.Shop:Levels(Name)
+                if Levels and ((Tool:IsA("Tool") and Tool:FindFirstChild("GunScript") and Tool:FindFirstChild("CurrentValues"))
+                    or Mirror and Tool:FindFirstChild("CurrentValues")) then
+                    Owned[Name] = Tool:IsA("Tool") and Tool or Owned[Name] or false
+                end
+            end
+        end
+        Visit(P:FindFirstChildOfClass("Backpack"), false); Visit(P.Character, false)
+        Visit(P:FindFirstChild("Backgear"), true)
+        for Name in pairs(Owned) do table.insert(Names, Name) end
+        table.sort(Names, function(X, Y)
+            if X == Y then return false end
+            if X == "Select weapon" then return true end
+            if Y == "Select weapon" then return false end
+            return X < Y
+        end)
+        self.Inventory = Owned; self.InventoryDirty = false; self.LastScan = os.clock()
+        local Selected = Flags.UpgradeWeapon
+        if self.SavedWeapon and Owned[self.SavedWeapon] ~= nil then Selected = self.SavedWeapon; self.SavedWeapon = nil end
+        if Owned[Selected] == nil then Selected = "Select weapon" end
+        self.Scanning = true
+        Library.Items.UpgradeWeapon:SetOptions(Names, Selected)
+        self.Scanning = false
+        self:ScanPriorities()
+    end
+    function A:ScanPriorities()
+        local Options = {"Select upgrade"}
+        local Levels = self.Shop:Levels(Flags.UpgradeWeapon)
+        if self.Inventory[Flags.UpgradeWeapon] ~= nil and Levels then
+            for _, L in ipairs(Levels:GetChildren()) do
+                if IsLevel(L) then
+                    table.insert(Options, L.Name)
+                end
+            end
+        end
+        table.sort(Options, function(X, Y)
+            if X == Y then return false end
+            if X == "Select upgrade" then return true end
+            if Y == "Select upgrade" then return false end
+            return X < Y
+        end)
+        local Selected = Flags.UpgradePriority
+        if not self.SavedWeapon and self.SavedPriority and table.find(Options, self.SavedPriority) then
+            Selected = self.SavedPriority; self.SavedPriority = nil
+        end
+        if not table.find(Options, Selected) then Selected = Options[2] or Options[1] end
+        Library.Items.UpgradePriority:SetOptions(Options, Selected)
+    end
+    function A:RestoreSelection(Values)
+        if type(Values.UpgradeWeapon) == "string" then self.SavedWeapon = Values.UpgradeWeapon end
+        if type(Values.UpgradePriority) == "string" then self.SavedPriority = Values.UpgradePriority end
+        self:ScanInventory()
+    end
+    function A:Watch(Key, Parent)
+        for _, C in ipairs(self.Watches[Key] or {}) do C:Disconnect() end
+        local Bucket = {}; self.Watches[Key] = Bucket
+        if Parent then
+            Connect(Parent.DescendantAdded, function() self.InventoryDirty = true end, Bucket)
+            Connect(Parent.DescendantRemoving, function() self.InventoryDirty = true end, Bucket)
+        end
+        self.InventoryDirty = true
+    end
+    function A:SnapshotZombies()
+        local Folder = W:FindFirstChild("Zombies")
+        local List = {}
+        if Folder then
+            for _, Model in ipairs(Folder:GetChildren()) do
+                local H = Model:FindFirstChildOfClass("Humanoid")
+                local Head = Model:FindFirstChild("Head")
+                if H and H.Health > 0 and Head and Head:IsA("BasePart") then
+                    table.insert(List, {Model = Model, Humanoid = H, Head = Head})
+                end
+            end
+        end
+        self.Zombies = List
+    end
+    function A:Params(ExcludeZombies)
+        local Params = RaycastParams.new()
+        Params.FilterType = Enum.RaycastFilterType.Exclude
+        local Ignore = {}
+        if P.Character then table.insert(Ignore, P.Character) end
+        if ExcludeZombies then
+            local Folder = W:FindFirstChild("Zombies")
+            if Folder then table.insert(Ignore, Folder) end
+        end
+        local Camera = W.CurrentCamera
+        if Camera then table.insert(Ignore, Camera) end
+        Params.FilterDescendantsInstances = Ignore
+        Params.RespectCanCollide = ExcludeZombies == true
+        return Params
+    end
+    function A:Visible(Origin, Z, Tool)
+        local Params = self:Params(false)
+        local B = Tool and Guns.Weapons[Tool]
+        if B and B.Manager and type(B.Manager.GetIgnoreList) == "function" then
+            local OK, List = pcall(B.Manager.GetIgnoreList, B.Manager)
+            if OK and type(List) == "table" then
+                local Ignore = Params.FilterDescendantsInstances
+                for _, Item in ipairs(List) do if typeof(Item) == "Instance" then table.insert(Ignore, Item) end end
+                Params.FilterDescendantsInstances = Ignore
+            end
+        end
+        local Hit = W:Raycast(Origin, Z.Head.Position - Origin, Params)
+        return Hit == nil or Hit.Instance:IsDescendantOf(Z.Model)
+    end
+    function A:SelectTarget(Origin, Range, Tool)
+        local function Valid(Z)
+            local Folder = W:FindFirstChild("Zombies")
+            return Folder ~= nil and Z and Z.Model.Parent == Folder and Z.Head.Parent and Z.Humanoid.Health > 0
+                and (Z.Head.Position - Origin).Magnitude <= Range and self:Visible(Origin, Z, Tool)
+        end
+        if Valid(self.Target) then return self.Target end
+        local Best, Distance = nil, math.huge
+        for _, Z in ipairs(self.Zombies) do
+            if Valid(Z) then
+                local D = (Z.Head.Position - Origin).Magnitude
+                if D < Distance then Best = Z; Distance = D end
+            end
+        end
+        self.Target = Best
+        return Best
+    end
+    function A:Equipped()
+        if P.Character then
+            for _, T in ipairs(P.Character:GetChildren()) do
+                if T:IsA("Tool") and T:FindFirstChild("GunScript") and T:FindFirstChild("CurrentValues") then return T end
+            end
+        end
+        return nil
+    end
+    function A:Equip(H)
+        if self.Equipping or os.clock() < (self.NextEquip or 0) then return end
+        local Bag = P:FindFirstChildOfClass("Backpack")
+        local Best
+        if Bag then
+            for _, T in ipairs(Bag:GetChildren()) do
+                if T:IsA("Tool") and T:FindFirstChild("GunScript") and T:FindFirstChild("CurrentValues")
+                    and (Value(T, "Clip", 0) ~= 0 or Value(T, "Ammo", 0) ~= 0) then Best = T; break end
+            end
+        end
+        if Best then
+            self.Equipping = true; self.NextEquip = os.clock() + 1
+            task.spawn(function()
+                if self.Alive and Flags.FarmAutoShoot and self:Focused() and H.Parent == P.Character then pcall(H.EquipTool, H, Best) end
+                self.Equipping = false
+            end)
+        end
+    end
+    function A:CameraState()
+        if Flags.CameraThirdPerson then
+            if not self.CameraSaved then
+                self.CameraSaved = {Mode = P.CameraMode, Min = P.CameraMinZoomDistance, Max = P.CameraMaxZoomDistance}
+            end
+            local D = Number(Flags.CameraDistance, 10, 4, 24)
+            P.CameraMode = Enum.CameraMode.Classic
+            P.CameraMaxZoomDistance = math.max(P.CameraMaxZoomDistance, D)
+            P.CameraMinZoomDistance = D; P.CameraMaxZoomDistance = D
+        elseif self.CameraSaved then
+            local S = self.CameraSaved
+            P.CameraMaxZoomDistance = math.max(P.CameraMaxZoomDistance, S.Max, S.Min)
+            P.CameraMinZoomDistance = S.Min; P.CameraMaxZoomDistance = S.Max; P.CameraMode = S.Mode
+            self.CameraSaved = nil
+        end
+    end
+    function A:Aim(Camera, Root, Target)
+        if not self.MouseBehavior then self.MouseBehavior = Input.MouseBehavior end
+        Input.MouseBehavior = Enum.MouseBehavior.LockCenter
+        local Origin = Camera.CFrame.Position
+        if Flags.CameraThirdPerson then
+            local Head = P.Character and P.Character:FindFirstChild("Head")
+            local Pivot = Head and Head.Position or Root.Position + Vector3.new(0, 1.5, 0)
+            local Direction = Unit(Target.Head.Position - Pivot)
+            local Desired = Pivot - Direction * Number(Flags.CameraDistance, 10, 4, 24) + Vector3.new(0, 1, 0)
+            local Hit = W:Raycast(Pivot, Desired - Pivot, self:Params(true))
+            Origin = Hit and Hit.Position + Hit.Normal * 0.4 or Desired
+        end
+        Camera.CFrame = CFrame.lookAt(Origin, Target.Head.Position)
+        Camera.Focus = CFrame.new(Target.Head.Position)
+    end
+    function A:Shoot(Tool)
+        local B = Guns.Weapons[Tool] or Guns:BindWeapon(Tool)
+        if not B then self:ReleaseMouse(); Status("FarmStatus", "Waiting for native gun script"); return end
+        if Value(Tool, "Clip", 0) == 0 then
+            self:ReleaseMouse()
+            if Value(Tool, "Ammo", 0) ~= 0 and not self.Reloading and os.clock() > (self.NextReload or 0)
+                and type(B.Environment.reload) == "function" then
+                self.Reloading = true; self.NextReload = os.clock() + 1
+                task.spawn(function()
+                    if self.Alive and Flags.FarmAutoShoot and Tool.Parent == P.Character then pcall(B.Environment.reload) end
+                    self.Reloading = false
+                end)
+            end
+            Status("FarmStatus", Value(Tool, "Ammo", 0) == 0 and "Out of ammunition" or "Native reload")
+            return
+        end
+        local FireType = Value(Tool, "FireType", "Single")
+        if FireType == "Charge" then self:ReleaseMouse(); Status("FarmStatus", "Charge weapons need manual fire"); return end
+        if self.MouseOwned and self.PressedBinding ~= B then self:ReleaseMouse() end
+        if self.MouseOwned and FireType ~= "FullAuto" and FireType ~= "Continuous" then
+            if os.clock() >= self.PressRelease then self:ReleaseMouse() end
+        elseif not self.MouseOwned and os.clock() >= self.NextPress
+            and not Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) and not self.ReleasePending then
+            mouse1press(); self.MouseOwned = true; self.PressedBinding = B
+            self.PressRelease = os.clock() + 0.035
+            self.NextPress = os.clock() + math.max(0.08, 60 / Number(Value(Tool, "AttackSpeed", 300), 300, 1, 7200))
+        end
+        Status("FarmStatus", "Head lock: " .. self.Target.Model.Name)
+    end
+    function A:ChooseEscape(Root, Radius)
+        local Position = Root.Position
+        local Away, Nearest = Vector3.zero, math.huge
+        for _, Z in ipairs(self.Zombies) do
+            local Delta = Flat(Position - Z.Head.Position)
+            local D = Delta.Magnitude
+            Nearest = math.min(Nearest, D)
+            if D < Radius + 8 then Away = Away + Unit(Delta) * (Radius + 8 - D) end
+        end
+        self.Nearest = Nearest
+        if Nearest >= Radius then return nil end
+        if Away.Magnitude < 0.01 then
+            local Z = self.Zombies[1]
+            Away = Z and Unit(Flat(Position - Z.Head.Position)) or Vector3.new(1, 0, 0)
+            if Away.Magnitude < 0.01 then Away = Vector3.new(1, 0, 0) end
+        end
+        Away = Unit(Away)
+        local Params = self:Params(true)
+        local Best, Score = nil, -math.huge
+        local Travel = math.clamp(Radius * 0.3, 5, 10)
+        for Index = 0, 15 do
+            local Angle = Index * math.pi / 8
+            local Direction = Vector3.new(math.cos(Angle), 0, math.sin(Angle))
+            local Hit = W:Blockcast(CFrame.new(Position), Vector3.new(2.8, 3.5, 2.8), Direction * Travel, Params)
+            local Clearance = Hit and Hit.Distance or Travel
+            local End = Position + Direction * math.min(Travel, math.max(0, Clearance - 0.6))
+            local Ground = W:Raycast(End + Vector3.new(0, 3, 0), Vector3.new(0, -10, 0), Params)
+            -- Cliffs and steep surfaces are always excluded; walls may still steer even with the preference off.
+            if Clearance >= 3 and Ground and Ground.Normal.Y >= 0.6 and math.abs(Ground.Position.Y - (Position.Y - 3)) < 4 then
+                local Safe = math.huge
+                for _, Z in ipairs(self.Zombies) do Safe = math.min(Safe, Flat(End - Z.Head.Position).Magnitude) end
+                local S = math.min(Safe, Radius + 15) * 2 + Direction:Dot(Away) * 5
+                    + (Flags.FarmAvoidWalls and Clearance or 0)
+                if self.StuckDirection then S = S - math.max(0, Direction:Dot(self.StuckDirection)) * 20 end
+                if S > Score then Score = S; Best = Direction end
+            end
+        end
+        return Best
+    end
+    function A:Kite(H, Root)
+        if not self.LastPosition or os.clock() - self.LastPositionAt >= 1 then
+            if self.LastPosition and self.MoveDirection and (Root.Position - self.LastPosition).Magnitude < 1 then
+                self.StuckDirection = self.MoveDirection; self.StuckUntil = os.clock() + 2
+            end
+            self.LastPosition = Root.Position; self.LastPositionAt = os.clock()
+        end
+        if self.StuckUntil and os.clock() >= self.StuckUntil then self.StuckDirection = nil end
+        self.MoveDirection = self:ChooseEscape(Root, Number(Flags.FarmDistance, 24, 5, 100))
+        if self.MoveDirection then
+            self.MovingHumanoid = H
+            self:Sprint(Flags.FarmUseSprint == true)
+        else
+            self:StopMovement()
+            if self.Nearest < Number(Flags.FarmDistance, 24, 5, 100) then Status("FarmStatus", "No safe retreat path") end
+        end
+    end
+    function A:TravelToShop(H, Root)
+        local Regions = RS:FindFirstChild("ShopRegions")
+        local Region = Regions and Regions:FindFirstChild("MainShopRegion")
+        if not Region or not Region:IsA("BasePart") then Status("UpgradeStatus", "Shop location unavailable"); return end
+        if self.PathFailedUntil and os.clock() < self.PathFailedUntil then Status("UpgradeStatus", "Shop path blocked; retrying shortly"); return end
+        if not self.Route and not self.PathComputing then
+            self.PathComputing = true
+            local Token = {}; self.PathToken = Token
+            local Ground = W:Raycast(Region.Position + Vector3.new(0, 3, 0), Vector3.new(0, -30, 0), self:Params(true))
+            local Destination = Ground and Ground.Position or Region.Position
+            task.spawn(function()
+                local OK, Route = pcall(function()
+                    local Path = Paths:CreatePath({AgentRadius = 2, AgentHeight = 5, AgentCanJump = true, WaypointSpacing = 4})
+                    Path:ComputeAsync(Root.Position, Destination)
+                    if Path.Status == Enum.PathStatus.Success then return Path:GetWaypoints() end
+                    return nil
+                end)
+                if not self.Alive or self.PathToken ~= Token then return end
+                self.PathComputing = false
+                if OK and Route and #Route >= 2 then
+                    self.Route = Route; self.Waypoint = 2; self.RouteAt = os.clock()
+                    self.ProgressPosition = Root.Position; self.ProgressAt = os.clock()
+                else self.PathFailedUntil = os.clock() + 3 end
+            end)
+        end
+        local Route = self.Route
+        if Route then
+            local Point = Route[self.Waypoint]
+            if Point and (Root.Position - Point.Position).Magnitude < 3 then self.Waypoint = self.Waypoint + 1; Point = Route[self.Waypoint] end
+            if not Point or os.clock() - self.RouteAt > 8 then self.Route = nil; self:StopMovement(); return end
+            if os.clock() - self.ProgressAt >= 1.5 then
+                if (Root.Position - self.ProgressPosition).Magnitude < 1 then self.Route = nil; self:StopMovement(); return end
+                self.ProgressPosition = Root.Position; self.ProgressAt = os.clock()
+            end
+            self.MovingHumanoid = H; self.Travelling = true; self.MoveDirection = nil
+            H:MoveTo(Point.Position)
+            if Point.Action == Enum.PathWaypointAction.Jump then H.Jump = true end
+            self:Sprint(Flags.FarmUseSprint == true)
+        end
+        Status("UpgradeStatus", "Walking to shop")
+    end
+    function A:CancelTravel()
+        self.PathToken = nil; self.PathComputing = false; self.Route = nil
+        if self.Travelling then self:StopMovement() end
+    end
+    function A:OrderedLevels()
+        local Levels = self.Shop:Levels(Flags.UpgradeWeapon)
+        if not Levels or self.Inventory[Flags.UpgradeWeapon] == nil then return {} end
+        local Priority = Levels:FindFirstChild(Flags.UpgradePriority)
+        if not IsLevel(Priority) then return {} end
+        local List = {Priority}
+        if Flags.UpgradeMode == "All upgrades" then
+            local Rest = {}
+            for _, L in ipairs(Levels:GetChildren()) do
+                if L ~= Priority and IsLevel(L) then table.insert(Rest, L) end
+            end
+            table.sort(Rest, function(X, Y) return X.Name < Y.Name end)
+            for _, L in ipairs(Rest) do table.insert(List, L) end
+        end
+        return List
+    end
+    function A:StopUpgrade(Message, Complete)
+        Status("UpgradeStatus", Message)
+        Library.Items.UpgradeEnabled:Set(false)
+        if not Complete or Flags.UpgradeNotify then Notify("upgrade-stop", Message) end
+    end
+    function A:Upgrade(H, Root)
+        local State, Pending = self.Shop:Poll()
+        if State == "confirmed" then
+            Guns:SetSuspended(false)
+            self.LastConfirmed = Pending.Weapon .. "\0" .. Pending.Level.Name
+            self.LastBuy = os.clock()
+            self.InventoryDirty = true
+            Status("UpgradeStatus", "Confirmed: " .. Pending.Level.Name)
+        elseif State == "timeout" or State == "rejected" then
+            Guns:SetSuspended(false)
+            self.UnconfirmedWeapon = Pending.Weapon
+            self:StopUpgrade("Upgrade unconfirmed; stopped to avoid repeat buys", false)
+            return false
+        elseif State == "waiting" then Status("UpgradeStatus", "Waiting for server confirmation"); return false end
+        if not Flags.UpgradeEnabled then return false end
+        if self.UnconfirmedWeapon == Flags.UpgradeWeapon then
+            self:StopUpgrade("Previous upgrade unconfirmed; check native shop manually", false)
+            return false
+        end
+        local List = self:OrderedLevels()
+        if #List == 0 then Status("UpgradeStatus", "Select an owned weapon and upgrade"); return false end
+        local Complete = true
+        for _, L in ipairs(List) do if L.Value < L.MaxValue then Complete = false end end
+        if Complete then
+            self:StopUpgrade(Flags.UpgradeMode == "All upgrades" and "Weapon fully upgraded" or "Selected upgrade fully upgraded", true)
+            return false
+        end
+        if not H or not self:Focused() then Status("UpgradeStatus", "Hide UI and focus game to upgrade"); return false end
+        if not self.Shop:BetweenRounds() then self:CancelTravel(); Status("UpgradeStatus", "Waiting for round end"); return false end
+        if not self.Shop:InShop() then
+            if Flags.UpgradeShopFallback then self:TravelToShop(H, Root); return true end
+            Status("UpgradeStatus", "Enter shop after round end"); return false
+        end
+        self:CancelTravel(); self:ReleaseAim()
+        if os.clock() - self.LastBuy >= 0.5 then
+            self.LastBuy = os.clock()
+            Guns:SetSuspended(true)
+            local OK, Purchase, Reason = pcall(self.Shop.TryPurchase, self.Shop, Flags.UpgradeWeapon, List)
+            if not OK then
+                if not self.Shop.Pending then Guns:SetSuspended(false) end
+                self:StopUpgrade("Native shop error; auto upgrade stopped", false)
+            else
+                if not Purchase then Guns:SetSuspended(false) end
+                Status("UpgradeStatus", Reason or "Upgrade unavailable")
+            end
+        end
+        return false
+    end
+    function A:HideVisuals()
+        for _, Line in ipairs(self.Lines) do Line.Visible = false end
+        if self.DistanceText then self.DistanceText.Visible = false end
+    end
+    function A:Visuals(Root)
+        self:HideVisuals()
+        local Camera = W.CurrentCamera
+        if not Root or not Camera then return end
+        if Flags.FarmShowDistance then
+            if not self.DistanceText then
+                self.DistanceText = Drawing.new("Text"); self.DistanceText.Size = 14
+                self.DistanceText.Font = Drawing.Fonts.UI; self.DistanceText.Center = true
+                self.DistanceText.Outline = true; self.DistanceText.Color = Color3.fromRGB(200, 65, 75)
+            end
+            local Nearest = math.huge
+            for _, Z in ipairs(self.Zombies) do Nearest = math.min(Nearest, Flat(Root.Position - Z.Head.Position).Magnitude) end
+            self.DistanceText.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y * 0.7)
+            self.DistanceText.Text = Nearest < math.huge and string.format("Nearest zombie: %.0f studs", Nearest) or "No live zombies"
+            self.DistanceText.Visible = true
+        end
+        if Flags.FarmShowCircle then
+            local Radius = Number(Flags.FarmDistance, 24, 5, 100)
+            for Index = 1, 48 do
+                local Line = self.Lines[Index]
+                if not Line then
+                    Line = Drawing.new("Line"); Line.Color = Color3.fromRGB(125, 15, 30)
+                    Line.Thickness = 1; Line.Transparency = 0.7; self.Lines[Index] = Line
+                end
+                local Angle = (Index - 1) * math.pi / 24
+                local Next = Index * math.pi / 24
+                local Center = Root.Position - Vector3.new(0, 2.6, 0)
+                local X, OnX = Camera:WorldToViewportPoint(Center + Vector3.new(math.cos(Angle) * Radius, 0, math.sin(Angle) * Radius))
+                local Y, OnY = Camera:WorldToViewportPoint(Center + Vector3.new(math.cos(Next) * Radius, 0, math.sin(Next) * Radius))
+                if OnX and OnY and X.Z > 0 and Y.Z > 0 then
+                    Line.From = Vector2.new(X.X, X.Y); Line.To = Vector2.new(Y.X, Y.Y); Line.Visible = true
+                end
+            end
+        end
+    end
+    function A:Step()
+        local Now = os.clock()
+        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled
+        if self.InventoryDirty or (Active or Library.WindowVisible) and Now - self.LastScan >= 1 then self:ScanInventory() end
+        self:CameraState()
+        local _, H, Root = self:Character()
+        local Travelling = self:Upgrade(H, Root)
+        if Active then self:SnapshotZombies() end
+        if not H or not self:Focused() or self.Shop.Pending then
+            self:ReleaseAim(); self:StopMovement(); self:CancelTravel()
+            if Flags.FarmAutoShoot or Flags.FarmKeepDistance then Status("FarmStatus", not H and "Waiting for respawn" or "Hide UI and focus Roblox") end
+        elseif Travelling then self:ReleaseAim()
+        else
+            if not Flags.UpgradeEnabled or not self.Shop:BetweenRounds() then self:CancelTravel() end
+            if Flags.FarmKeepDistance then self:Kite(H, Root) else self:StopMovement() end
+            if not Flags.FarmAutoShoot then self:ReleaseAim() end
+        end
+        self:RefreshRender()
+    end
+    function A:Render()
+        if not self.Alive then return end
+        local _, H, Root = self:Character()
+        local Camera = W.CurrentCamera
+        if H and self:Focused() and not self.Travelling and not self.Shop.Pending then
+            if self.MoveDirection then H:Move(self.MoveDirection, false) end
+            if Flags.FarmAutoShoot and Camera then
+                local Tool = self:Equipped()
+                if Tool then
+                    local B = Guns.Weapons[Tool]
+                    local Range = B and B.Environment.Range or Value(Tool, "Range", 0)
+                    local Origin = Root.Position + Vector3.new(0, 1.5, 0)
+                    local Target = self:SelectTarget(Origin, Number(Range, 0, 0, 1000000), Tool)
+                    if Target then
+                        self:Aim(Camera, Root, Target)
+                        -- Allow native mouse coordinates to settle for one frame after acquiring a head.
+                        if self.AimedAt == Target.Head then self:Shoot(Tool)
+                        else self:ReleaseMouse(); self.AimedAt = Target.Head end
+                    else self:ReleaseAim(); Status("FarmStatus", "No visible zombie in native range") end
+                else self:ReleaseAim(); self:Equip(H); Status("FarmStatus", "Equipping an available gun") end
+            else self:ReleaseAim() end
+        else self:ReleaseAim() end
+        if os.clock() - self.LastVisual >= 0.05 then
+            self.LastVisual = os.clock(); self:Visuals(Root)
+        end
+    end
+    function A:Fail(Error)
+        self:ReleaseAim(); self:StopMovement(); self:CancelTravel(); self:HideVisuals()
+        if not self.Shop.Pending then Guns:SetSuspended(false) end
+        self.Failed = true
+        Notify("runtime-error", "Automation paused: " .. tostring(Error))
+        self:RefreshRender()
+    end
+    function A:RefreshRender()
+        local Need = not self.Failed and (Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle)
+        if Need and not self.Rendering then
+            self.Rendering = true
+            Run:BindToRenderStep(RenderName, Enum.RenderPriority.Last.Value + 1, function()
+                local OK, Error = pcall(self.Render, self)
+                if not OK then self:Fail(Error) end
+            end)
+        elseif not Need and self.Rendering then
+            Run:UnbindFromRenderStep(RenderName); self.Rendering = false; self:HideVisuals()
+        end
+    end
+    function A:Destroy()
+        if not self.Alive then return end
+        self.Alive = false; self.PathToken = nil
+        self:ReleaseAim(); self:StopMovement(); self:HideVisuals()
+        if self.ReleasePending or self.SprintReleasePending then
+            -- OS releases ignored while unfocused must finish once focus returns, including after unload.
+            local FinalRelease
+            FinalRelease = Input.WindowFocused:Connect(function()
+                self:ReleaseMouse(); self:Sprint(false); FinalRelease:Disconnect()
+            end)
+        end
+        if self.Rendering then Run:UnbindFromRenderStep(RenderName); self.Rendering = false end
+        for _, C in ipairs(self.Connections) do C:Disconnect() end
+        for _, Bucket in pairs(self.Watches) do for _, C in ipairs(Bucket) do C:Disconnect() end end
+        for Item, Record in pairs(self.Callbacks) do if Item.Callback == Record.Owned then Item.Callback = Record.Previous end end
+        self.Shop:Destroy(); Guns:SetSuspended(false)
+        local Third = Flags.CameraThirdPerson; Flags.CameraThirdPerson = false; self:CameraState(); Flags.CameraThirdPerson = Third
+        for _, Line in ipairs(self.Lines) do Line:Remove() end
+        if self.DistanceText then self.DistanceText:Remove() end
+    end
+    local function Own(Key, Action)
+        local Item = Library.Items[Key]
+        if not Item then return end
+        local Previous = Item.Callback
+        local Owned = function(V)
+            Previous(V)
+            if not A.Alive then return end
+            A.Failed = false
+            Action(V)
+            A:RefreshRender()
+        end
+        A.Callbacks[Item] = {Previous = Previous, Owned = Owned}; Item.Callback = Owned
+    end
+    Own("UpgradeWeapon", function()
+        if not A.Scanning then A.SavedWeapon = nil; A.SavedPriority = nil end
+        A:ScanPriorities(); A:CancelTravel()
+    end)
+    Own("UpgradePriority", function() A.SavedPriority = nil end)
+    Own("UpgradeEnabled", function(V) A.Notices["upgrade-stop"] = nil; if not V then A:CancelTravel() end end)
+    Own("UpgradeShopFallback", function(V) if not V then A:CancelTravel() end end)
+    Own("FarmAutoShoot", function(V) if not V then A:ReleaseAim() end end)
+    Own("FarmKeepDistance", function(V) if not V then A:StopMovement() end end)
+    Own("FarmUseSprint", function(V) if not V then A:Sprint(false) end end)
+    Own("FarmShowDistance", function() A:HideVisuals() end)
+    Own("FarmShowCircle", function() A:HideVisuals() end)
+    Own("CameraThirdPerson", function() A:CameraState() end)
+    Own("CameraDistance", function() A:CameraState() end)
+    Connect(P.CharacterAdded, function(C) A:ReleaseAim(); A:StopMovement(); A:CancelTravel(); A:Watch("Character", C) end)
+    Connect(P.ChildAdded, function(C)
+        if C:IsA("Backpack") or C.Name == "Backgear" or C.Name == "Upgrades" then A:Watch(C.Name, C) end
+    end)
+    Connect(Input.WindowFocusReleased, function() A:ReleaseAim(); A:StopMovement(); A:CancelTravel() end)
+    Connect(Input.WindowFocused, function() A:ReleaseMouse(); A:Sprint(false) end)
+    A:Watch("Character", P.Character)
+    A:Watch("Backpack", P:FindFirstChildOfClass("Backpack"))
+    A:Watch("Backgear", P:FindFirstChild("Backgear")); A:Watch("Upgrades", P:FindFirstChild("Upgrades"))
+    Connect(Run.Heartbeat, function()
+        if not A.Alive or os.clock() - A.LastStep < 0.1 then return end
+        A.LastStep = os.clock()
+        if A.Failed then
+            if A.Shop.Pending then pcall(A.Upgrade, A, nil, nil) end
+            return
+        end
+        local OK, Error = pcall(A.Step, A)
+        if not OK then A:Fail(Error) end
+    end)
+    A:ScanInventory(); A:CameraState(); A:RefreshRender()
+    Status("FarmStatus", "Head lock uses native weapon range")
+    Status("UpgradeStatus", "Inventory scanned; select a weapon")
+    return A
+end
+
+end)()
+
 -- Main tab. Features owns gameplay state, cleanup and native shop integration.
 local LoadTime = tick()
 
@@ -3780,13 +4590,14 @@ GunMods:Toggle({Title = "no recoil", Flag = "GunNoRecoil"})
 GunMods:Toggle({Title = "zombie piercing (unavailable)", Flag = "GunPiercing"})
 
 local Farm = Main:Section("AUTOFARM", "Left")
-Farm:Toggle({Title = "auto shoot zombies", Flag = "FarmAutoShoot"})
+Farm:Toggle({Title = "auto shoot (head lock)", Flag = "FarmAutoShoot"})
 Farm:Toggle({Title = "distance checker", Flag = "FarmKeepDistance"})
 Farm:Slider({Title = "keep distance (studs)", Flag = "FarmDistance", Symbol = "", Default = 24, Min = 5, Max = 100, Decimals = 1})
 Farm:Toggle({Title = "show distance", Flag = "FarmShowDistance"})
 Farm:Toggle({Title = "show distance circle", Flag = "FarmShowCircle"})
 Farm:Toggle({Title = "avoid walls", Flag = "FarmAvoidWalls", State = true})
 Farm:Toggle({Title = "use sprint (Shift)", Flag = "FarmUseSprint", State = true})
+Library.FarmStatus = Farm:Label("Head lock uses native weapon range")
 
 local Upgrade = Main:Section("AUTO UPGRADE", "Right")
 Upgrade:Toggle({Title = "enabled", Flag = "UpgradeEnabled"})
@@ -3800,17 +4611,18 @@ local function RefreshUpgradeControls(Weapon)
             "Stop when selected upgrade is maxed.")
     end
 end
-Upgrade:Dropdown({Title = "weapon", Flag = "UpgradeWeapon", List = {"Select weapon", "Pistol"}, Default = "Pistol", Callback = RefreshUpgradeControls})
-Priority = Upgrade:Dropdown({Title = "prioritize upgrade", Flag = "UpgradePriority", List = {"Damage", "Fire rate", "Reload speed", "Magazine size", "Range"}, Default = "Damage"})
+Upgrade:Dropdown({Title = "weapon", Flag = "UpgradeWeapon", List = {"Select weapon"}, Default = "Select weapon", Callback = RefreshUpgradeControls})
+Priority = Upgrade:Dropdown({Title = "prioritize upgrade", Flag = "UpgradePriority", List = {"Select upgrade"}, Default = "Select upgrade"})
 UpgradeMode = Upgrade:Dropdown({Title = "upgrade mode", Flag = "UpgradeMode", List = {"Selected upgrade only", "All upgrades"}, Default = "Selected upgrade only"})
 Upgrade:Toggle({Title = "go to shop if needed", Flag = "UpgradeShopFallback", State = true})
 Upgrade:Toggle({Title = "completion notifications", Flag = "UpgradeNotify", State = true})
-UpgradeHint = Upgrade:Label("Stop when selected upgrade is maxed.")
+UpgradeHint = Upgrade:Label("Select a weapon to set priorities.")
+Library.UpgradeStatus = Upgrade:Label("Scanning owned weapons...")
 UpgradeMode.Callback = function(Mode)
-    -- The inherited dropdown calls its callback before updating Library.Flags.
     UpgradeHint:Set(Library.Flags.UpgradeWeapon == "Select weapon" and "Select a weapon to set priorities." or
         Mode == "All upgrades" and "Priority first, then max the weapon." or "Stop when selected upgrade is maxed.")
 end
+RefreshUpgradeControls(Library.Flags.UpgradeWeapon)
 
 local Camera = Main:Section("THIRD PERSON", "Right")
 Camera:Toggle({Title = "enabled", Flag = "CameraThirdPerson"})
@@ -3843,6 +4655,7 @@ Profile:Button({Title = "unload UI", Callback = Library.SelfDestruct})
 Window:SwitchTab(Main)
 Library.WindowInstance = Window
 Library.Features = CreateFeatures(Library, Window)
+Library.Automation = CreateAutomation(Library, Window, Library.Features, CreateShopAdapter)
 Library.LoadTime = math.floor((tick() - LoadTime) * 1000)
 Window.SendNotification("Normal", "neoperro loaded | RightShift to toggle", 3)
 return Library

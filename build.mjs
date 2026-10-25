@@ -19,7 +19,7 @@ const textures={
 const logo=fs.readFileSync(path.join(root,'assets/logo.png'));
 const logoHash='1e4d00f434d682b47f9f5f53e07890435f5f018610417e384c5f24db808e23c1';
 if(createHash('sha256').update(logo).digest('hex')!==logoHash)throw new Error('Original logo checksum mismatch');
-let boot=`-- neoperroTFS: original Abyss Drawing layout, gun mods only.
+let boot=`-- neoperroTFS: original Abyss Drawing layout and native-input automation.
 local Previous = getgenv().NeoperroTFS
 if Previous and Previous.Destroy then Previous:Destroy() end
 local function decodeBase64(Input)
@@ -47,7 +47,8 @@ local EmbeddedAssets = {}
 `;
 for(const [name,data] of Object.entries(textures)){fs.writeFileSync(path.join(root,'assets',name),data);boot+=`EmbeddedAssets["${name}"] = decodeBase64([[${data.toString('base64')}]])\n`;}
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
-const bundle=boot+'\nlocal Library = (function()\n'+read('src/Library.luau')+'\nend)()\n\nlocal CreateFeatures = (function()\n'+read('src/Features.luau')+'\nend)()\n\n'+read('src/App.luau');
+const modules=[['Library','Library'],['CreateFeatures','Features'],['CreateShopAdapter','ShopAdapter'],['CreateAutomation','Automation']];
+const bundle=boot+modules.map(([binding,name])=>'\nlocal '+binding+' = (function()\n'+read('src/'+name+'.luau')+'\nend)()\n').join('\n')+'\n'+read('src/App.luau');
 fs.mkdirSync(path.join(root,'dist'),{recursive:true});
 fs.writeFileSync(path.join(root,'dist/neoperroTFS.luau'),bundle);
 console.log({lines:bundle.split('\n').length,bytes:Buffer.byteLength(bundle)});

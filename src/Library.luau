@@ -335,6 +335,7 @@ do
                 end
             end
         end
+        if Library.Automation then Library.Automation:RestoreSelection(Values) end
     end
     Utility.AddFolder = function(GetFolder)
         local Folder = isfolder(GetFolder)
@@ -520,6 +521,7 @@ do
     end
     function Library.SelfDestruct()
         if Library.Destroyed then return end
+        if Library.Automation then pcall(Library.Automation.Destroy, Library.Automation) end
         if Library.Features then pcall(Library.Features.Destroy, Library.Features) end
         Library.Destroyed = true
         if Library.MotionConnection then Library.MotionConnection:Disconnect(); Library.MotionConnection = nil end
@@ -2731,8 +2733,8 @@ do
                         end
                         Dropdown.Selected = Selected
                         DropdownValue.Text = Selected
-                        Dropdown.Callback(Dropdown.Selected)
                         Library.Flags[Options.Flag] = Dropdown.Selected
+                        Dropdown.Callback(Dropdown.Selected)
                     end
                     -- Dependent fields keep their reserved layout space and cannot receive
                     -- pointer input while hidden, including after changing tabs.

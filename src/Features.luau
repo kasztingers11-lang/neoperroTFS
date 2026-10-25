@@ -5,7 +5,7 @@ return function(Library: any, Window: any)
     local F: any = {Alive = true, Connections = {}, Weapons = {}, Values = {},
         Retries = {}, Callbacks = {}, Notices = {}, LastApply = 0}
     local Flags = Library.Flags
-    local Keys = {"GunRapidFire", "GunNoSpread", "GunNoRecoil"}
+    local Keys = {"GunRapidFire", "GunNoSpread", "GunNoRecoil", "FarmAutoShoot"}
     local Unavailable = {
         GunInfiniteAmmo = "Infinite ammo", GunInstantReload = "Instant reload",
         GunInfiniteRange = "Infinite range", GunPiercing = "Zombie piercing"
@@ -98,16 +98,16 @@ return function(Library: any, Window: any)
         B = {Tool = Tool, Script = Script, Environment = Environment, Fire = Fire}
         for Index = 1, math.min(debug.getinfo(Fire).nups, 128) do
             local V = debug.getupvalue(Fire, Index)
-            if type(V) == "table" and type(V.AddRecoil) == "function" then
+            if type(V) == "table" and type(V.GetIgnoreList) == "function" then B.Manager = V end
+            if not B.RecoilIndex and type(V) == "table" and type(V.AddRecoil) == "function" then
                 B.RecoilIndex, B.Recoil = Index, V
-                break
             end
         end
         if B.RecoilIndex then
             local Recoil = B.Recoil
             B.RecoilProxy = setmetatable({}, {__index = Recoil})
             function B.RecoilProxy:AddRecoil(...)
-                if Flags.GunNoRecoil ~= true then return Recoil.AddRecoil(Recoil, ...) end
+                if Flags.GunNoRecoil ~= true or F.Suspended then return Recoil.AddRecoil(Recoil, ...) end
                 return nil
             end
             debug.setupvalue(Fire, B.RecoilIndex, B.RecoilProxy)
@@ -123,16 +123,16 @@ return function(Library: any, Window: any)
         return B
     end
     function F:ApplyTool(Tool)
-        local BindingNeed = Flags.GunNoSpread == true or Flags.GunNoRecoil == true
+        local BindingNeed = Flags.GunNoSpread == true or Flags.GunNoRecoil == true or Flags.FarmAutoShoot == true
         local B = BindingNeed and self:BindWeapon(Tool) or self.Weapons[Tool]
         local V = Tool:FindFirstChild("CurrentValues")
         if not V then return end
         for _, Prefix in ipairs({"", "Alt"}) do
-            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Flags.GunRapidFire == true)
-            Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Flags.GunRapidFire == true)
+            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Flags.GunRapidFire == true and not self.Suspended)
+            Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Flags.GunRapidFire == true and not self.Suspended)
         end
-        Assign(V:FindFirstChild("FireType"), "FullAuto", Flags.GunRapidFire == true)
-        local SpreadEnabled = Flags.GunNoSpread == true and B ~= nil and B.UpdateSpread ~= nil
+        Assign(V:FindFirstChild("FireType"), "FullAuto", Flags.GunRapidFire == true and not self.Suspended)
+        local SpreadEnabled = Flags.GunNoSpread == true and not self.Suspended and B ~= nil and B.UpdateSpread ~= nil
         local SpreadChanged = false
         for _, Prefix in ipairs({"", "Zoom", "Alt", "AltZoom"}) do
             local MinSpread = V:FindFirstChild(Prefix .. "Spread")
@@ -198,6 +198,10 @@ return function(Library: any, Window: any)
         self.Queued = true
         task.defer(function() self.Queued = false; if self.Alive then self:Refresh() end end)
     end
+    function F:SetSuspended(State)
+        self.Suspended = State == true
+        self:Refresh()
+    end
     function F:WatchInventory(Parent, Key)
         for _, C in ipairs(self[Key] or {}) do Disconnect(C) end
         self[Key] = {}
@@ -238,7 +242,7 @@ return function(Library: any, Window: any)
     Connect(P.ChildAdded, function(Child)
         if Child:IsA("Backpack") then F:WatchInventory(Child, "BackpackConnections") end
     end)
-    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate"}) do
+    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "FarmAutoShoot"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback

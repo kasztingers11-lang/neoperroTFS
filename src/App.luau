@@ -16,13 +16,14 @@ GunMods:Toggle({Title = "no recoil", Flag = "GunNoRecoil"})
 GunMods:Toggle({Title = "zombie piercing (unavailable)", Flag = "GunPiercing"})
 
 local Farm = Main:Section("AUTOFARM", "Left")
-Farm:Toggle({Title = "auto shoot zombies", Flag = "FarmAutoShoot"})
+Farm:Toggle({Title = "auto shoot (head lock)", Flag = "FarmAutoShoot"})
 Farm:Toggle({Title = "distance checker", Flag = "FarmKeepDistance"})
 Farm:Slider({Title = "keep distance (studs)", Flag = "FarmDistance", Symbol = "", Default = 24, Min = 5, Max = 100, Decimals = 1})
 Farm:Toggle({Title = "show distance", Flag = "FarmShowDistance"})
 Farm:Toggle({Title = "show distance circle", Flag = "FarmShowCircle"})
 Farm:Toggle({Title = "avoid walls", Flag = "FarmAvoidWalls", State = true})
 Farm:Toggle({Title = "use sprint (Shift)", Flag = "FarmUseSprint", State = true})
+Library.FarmStatus = Farm:Label("Head lock uses native weapon range")
 
 local Upgrade = Main:Section("AUTO UPGRADE", "Right")
 Upgrade:Toggle({Title = "enabled", Flag = "UpgradeEnabled"})
@@ -36,17 +37,18 @@ local function RefreshUpgradeControls(Weapon)
             "Stop when selected upgrade is maxed.")
     end
 end
-Upgrade:Dropdown({Title = "weapon", Flag = "UpgradeWeapon", List = {"Select weapon", "Pistol"}, Default = "Pistol", Callback = RefreshUpgradeControls})
-Priority = Upgrade:Dropdown({Title = "prioritize upgrade", Flag = "UpgradePriority", List = {"Damage", "Fire rate", "Reload speed", "Magazine size", "Range"}, Default = "Damage"})
+Upgrade:Dropdown({Title = "weapon", Flag = "UpgradeWeapon", List = {"Select weapon"}, Default = "Select weapon", Callback = RefreshUpgradeControls})
+Priority = Upgrade:Dropdown({Title = "prioritize upgrade", Flag = "UpgradePriority", List = {"Select upgrade"}, Default = "Select upgrade"})
 UpgradeMode = Upgrade:Dropdown({Title = "upgrade mode", Flag = "UpgradeMode", List = {"Selected upgrade only", "All upgrades"}, Default = "Selected upgrade only"})
 Upgrade:Toggle({Title = "go to shop if needed", Flag = "UpgradeShopFallback", State = true})
 Upgrade:Toggle({Title = "completion notifications", Flag = "UpgradeNotify", State = true})
-UpgradeHint = Upgrade:Label("Stop when selected upgrade is maxed.")
+UpgradeHint = Upgrade:Label("Select a weapon to set priorities.")
+Library.UpgradeStatus = Upgrade:Label("Scanning owned weapons...")
 UpgradeMode.Callback = function(Mode)
-    -- The inherited dropdown calls its callback before updating Library.Flags.
     UpgradeHint:Set(Library.Flags.UpgradeWeapon == "Select weapon" and "Select a weapon to set priorities." or
         Mode == "All upgrades" and "Priority first, then max the weapon." or "Stop when selected upgrade is maxed.")
 end
+RefreshUpgradeControls(Library.Flags.UpgradeWeapon)
 
 local Camera = Main:Section("THIRD PERSON", "Right")
 Camera:Toggle({Title = "enabled", Flag = "CameraThirdPerson"})
@@ -79,6 +81,7 @@ Profile:Button({Title = "unload UI", Callback = Library.SelfDestruct})
 Window:SwitchTab(Main)
 Library.WindowInstance = Window
 Library.Features = CreateFeatures(Library, Window)
+Library.Automation = CreateAutomation(Library, Window, Library.Features, CreateShopAdapter)
 Library.LoadTime = math.floor((tick() - LoadTime) * 1000)
 Window.SendNotification("Normal", "neoperro loaded | RightShift to toggle", 3)
 return Library
