@@ -1,5 +1,4 @@
--- Main-tab design preview. Controls store UI state only.
--- Weapon and upgrade names below are preview choices, pending inventory/shop integration.
+-- Main tab. Features owns gameplay state, cleanup and native shop integration.
 local LoadTime = tick()
 
 Library.CreateLoader("neoperro", Vector2.new(300, 300))
@@ -7,11 +6,14 @@ local Window = Library.Window("neoperro | the final stand 2", Vector2.new(500, 6
 local Main = Window:Tab("main")
 
 local GunMods = Main:Section("GUN MODS", "Left")
-GunMods:Toggle({Title = "wallbang", Flag = "GunWallbang"})
 GunMods:Toggle({Title = "rapid fire", Flag = "GunRapidFire"})
-GunMods:Toggle({Title = "infinite ammo", Flag = "GunInfiniteAmmo"})
-GunMods:Toggle({Title = "instant reload", Flag = "GunInstantReload"})
-GunMods:Toggle({Title = "infinite range", Flag = "GunInfiniteRange"})
+GunMods:Slider({Title = "fire rate (shots / second)", Flag = "GunFireRate", Symbol = "", Default = 60, Min = 1, Max = 120, Decimals = 1})
+GunMods:Toggle({Title = "infinite ammo (unavailable)", Flag = "GunInfiniteAmmo"})
+GunMods:Toggle({Title = "instant reload (unavailable)", Flag = "GunInstantReload"})
+GunMods:Toggle({Title = "infinite range (unavailable)", Flag = "GunInfiniteRange"})
+GunMods:Toggle({Title = "no spread", Flag = "GunNoSpread"})
+GunMods:Toggle({Title = "no recoil", Flag = "GunNoRecoil"})
+GunMods:Toggle({Title = "zombie piercing (unavailable)", Flag = "GunPiercing"})
 
 local Farm = Main:Section("AUTOFARM", "Left")
 Farm:Toggle({Title = "auto shoot zombies", Flag = "FarmAutoShoot"})
@@ -76,6 +78,7 @@ Profile:Button({Title = "unload UI", Callback = Library.SelfDestruct})
 
 Window:SwitchTab(Main)
 Library.WindowInstance = Window
+Library.Features = CreateFeatures(Library, Window)
 Library.LoadTime = math.floor((tick() - LoadTime) * 1000)
-Window.SendNotification("Normal", "Main tab preview loaded | RightShift to toggle", 3)
+Window.SendNotification("Normal", "neoperro loaded | RightShift to toggle", 3)
 return Library

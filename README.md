@@ -2,16 +2,24 @@
 
 The original [Abyss Drawing layout](https://github.com/Eazvy/UILibs/blob/main/Librarys/Abyss/Example), with clean text, black surfaces and a static dark-red glow beneath section titles and the selected tab. Subtle motion preserves the rectangular layout; there is no color cycling.
 
-This is the **Main tab design preview**. Controls save menu state; gameplay behavior and feasibility checks come after design approval. The old main/rage demo controls and rage tab have been removed.
+The current implementation focuses on **gun mods only**. The other Main sections remain design previews and do not run farming, shop purchases or camera automation. The old main/rage demo controls and rage tab have been removed.
 
 ## Main tab
 
-- **GUN MODS:** independent checkboxes for wallbang, rapid fire, infinite ammo, instant reload and infinite range.
+- **GUN MODS:** Rapid Fire with a 1–120 shots/second slider (default 60), No Spread and No Recoil. Wallbang was removed. Infinite Ammo, Instant Reload, Infinite Range and Zombie Piercing remain marked unavailable and cannot activate.
 - **AUTOFARM:** auto shoot zombies, distance checker, a 5–100 stud distance slider, distance text/circle toggles, wall avoidance and Shift sprint preferences.
 - **AUTO UPGRADE:** enabled, weapon, priority upgrade, selected-only/all-upgrades mode, shop fallback and completion alerts. Clearing the weapon choice hides the dependent priority/mode fields; selecting a weapon restores them. The mode hint explains whether to stop after one upgrade or max the weapon.
 - **THIRD PERSON:** enabled and a 4–24 stud camera distance slider.
 
-Pistol and the upgrade categories are preview choices. Inventory discovery, actual shop upgrades, completion notifications, shooting, movement and camera behavior have not been wired or tested. The planned range behavior shares the infinite-range setting with auto shoot. Shop access methods and gun-mod compatibility remain unverified.
+Pistol and the upgrade categories in AUTO UPGRADE are preview choices. Those controls save menu state only.
+
+## Gun adapter
+
+`src/Features.luau` binds owned guns, including guns added after loading or respawning. No Spread changes hip-fire/ADS spread and its growth, then refreshes the gun's cached spread. No Recoil bypasses the gun's camera-kick call through a scoped proxy. Rapid Fire converts the selected shots/second to the gun's rounds/minute field. Actual throughput depends on frame rate, weapon behavior and server acceptance.
+
+The failed ammo, reload, range and piercing methods have been removed. Their controls immediately return to off and explain that no working method has been verified; loading an old profile cannot activate them. Native ammo, reload time, range, penetration, perk flags and firing packets remain untouched. A working server-compatible replacement for those abilities has not been established. See `VALIDATION.md` for the evidence and limits.
+
+Switching mods off, dropping a weapon or unloading restores owned changes and scoped closure references. If the game updates a value while a mod is active, that update becomes the restoration baseline. Native cached spread is refreshed after restoration. Newly initialized/replaced gun scripts can bind on a later update; retries are limited to once per second per gun. One gun failing to bind does not stop other guns from updating. With every gun mod off, the feature heartbeat disconnects. There are no autofire, camera-aim, movement or purchase loops in this build.
 
 ## Run and controls
 
@@ -33,16 +41,18 @@ The watermark has been removed. Text input receives keyboard focus without toggl
 
 ![Original neoperro logo](assets/logo.png)
 
-The supplied image is unchanged: 1254 × 1254, 220,436 bytes. SHA-256: `1e4d00f434d682b47f9f5f53e07890435f5f018610417e384c5f24db808e23c1`. The UI downloads it directly from this repository. The image's black margins are retained.
+The supplied image is unchanged: 1254 × 1254, 220,436 bytes. SHA-256: `1e4d00f434d682b47f9f5f53e07890435f5f018610417e384c5f24db808e23c1`. The standalone bundle embeds those exact bytes, so opening it does not depend on downloading the image. The image's black margins are retained. The build rejects a different logo checksum.
 
 ## Source and performance
 
-`src/Library.luau` contains the adapted Abyss renderer; `src/App.luau` declares the menu. Run `node build.mjs` to regenerate `dist/neoperroTFS.luau` and the small generated UI textures. No npm dependencies are required.
+`src/Library.luau` contains the adapted Abyss renderer; `src/App.luau` declares the menu; `src/Features.luau` owns gun changes and cleanup. Run `node build.mjs` to regenerate `dist/neoperroTFS.luau` and the small generated UI textures. No npm dependencies are required.
+
+Run `node --test tests/build.test.mjs` for offline packaging, exact-image and deterministic-build checks. These do not simulate Roblox or prove server damage.
 
 The UI retains four shared engine event connections. A single extra render connection exists only while transitions are active and disconnects when idle. There are no animated accent broadcasts, custom cursor loops or clock loops. The glow remains a static texture. These are structural reductions, not a measured FPS claim.
 
 Motion is restrained: 120–160 ms visibility fades, 100 ms hover highlights, a 120 ms tab underline slide with a 140 ms content fade, keybind-row fades and smooth panel contraction, plus 75 ms drag smoothing. Transitions reverse from their current values when interrupted. No bounce, scaling or layout rearrangement is used.
 
-Profiles are stored in `neoperroTFS/Configs/default.json`. Drawing and HTTP support are required; filesystem APIs are needed for profiles. This is not a Roblox Studio LocalScript. See `VALIDATION.md` for tested behavior and limits.
+Profiles are stored in `neoperroTFS/Configs/default.json`. Invalid enum names and mismatched control values are ignored, and numeric sliders reject NaN/infinity and clamp valid numbers to their limits. Drawing support is required; HTTP is required only to fetch the loader's remote bundle, and filesystem APIs are needed for profiles. This is not a Roblox Studio LocalScript. See `VALIDATION.md` for tested behavior and limits.
 
 The library and demo derive from the Abyss example in Eazvy/UILibs; original authors retain attribution.

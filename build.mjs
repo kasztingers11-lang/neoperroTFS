@@ -1,7 +1,8 @@
-// Bundles the original Abyss UI; the original user logo downloads from GitHub.
+// Bundles the original Abyss UI and byte-for-byte original user logo.
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const crcTable=Array.from({length:256},(_,n)=>{for(let i=0;i<8;i++)n=n&1?0xedb88320^(n>>>1):n>>>1;return n>>>0;});
@@ -15,7 +16,10 @@ const textures={
  'Saturation.png':png(128,128,(x,y)=>{const a=1-x*(1-y);const c=a===0?0:(1-x)*(1-y)/a*255;return [c,c,c,a*255];}),
  'HueCursor.png':png(9,9,(x,y)=>{const d=Math.hypot(x-.5,y-.5);return d>.5||d<.24?[0,0,0,0]:d>.4?[0,0,0,255]:[255,255,255,255];})
 };
-let boot=`-- neoperroTFS: original Abyss Drawing layout, UI-only demo.
+const logo=fs.readFileSync(path.join(root,'assets/logo.png'));
+const logoHash='1e4d00f434d682b47f9f5f53e07890435f5f018610417e384c5f24db808e23c1';
+if(createHash('sha256').update(logo).digest('hex')!==logoHash)throw new Error('Original logo checksum mismatch');
+let boot=`-- neoperroTFS: original Abyss Drawing layout, gun mods only.
 local Previous = getgenv().NeoperroTFS
 if Previous and Previous.Destroy then Previous:Destroy() end
 local function decodeBase64(Input)
@@ -37,15 +41,13 @@ local function decodeBase64(Input)
     end
     return table.concat(Output)
 end
--- Exact original PNG. No cropping, recoloring, regeneration or image conversion.
-local LogoURL = "https://raw.githubusercontent.com/kasztingers11-lang/neoperroTFS/main/assets/logo.png"
-local LogoData = game:HttpGet(LogoURL)
-assert(LogoData:sub(1, 8) == string.char(137,80,78,71,13,10,26,10), "Logo download did not return a PNG")
+-- Exact original PNG embedded so opening the UI never depends on an image download.
+local LogoData = decodeBase64([[${logo.toString('base64')}]])
 local EmbeddedAssets = {}
 `;
 for(const [name,data] of Object.entries(textures)){fs.writeFileSync(path.join(root,'assets',name),data);boot+=`EmbeddedAssets["${name}"] = decodeBase64([[${data.toString('base64')}]])\n`;}
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
-const bundle=boot+'\nlocal Library = (function()\n'+read('src/Library.luau')+'\nend)()\n\n'+read('src/App.luau');
+const bundle=boot+'\nlocal Library = (function()\n'+read('src/Library.luau')+'\nend)()\n\nlocal CreateFeatures = (function()\n'+read('src/Features.luau')+'\nend)()\n\n'+read('src/App.luau');
 fs.mkdirSync(path.join(root,'dist'),{recursive:true});
 fs.writeFileSync(path.join(root,'dist/neoperroTFS.luau'),bundle);
 console.log({lines:bundle.split('\n').length,bytes:Buffer.byteLength(bundle)});

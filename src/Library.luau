@@ -299,22 +299,38 @@ do
     end
     Utility.LoadConfig = function(Name)
         local Values = HttpService:JSONDecode(readfile(Utility.ConfigPath(Name)))
+        assert(type(Values) == "table", "Profile must contain an object")
+        local function Finite(Value)
+            return type(Value) == "number" and Value == Value and math.abs(Value) < math.huge
+        end
+        local function FindEnum(Type: any, NameValue)
+            if type(NameValue) ~= "string" then return nil end
+            for _, Value in ipairs(Type:GetEnumItems()) do
+                if Value.Name == NameValue then return Value end
+            end
+            return nil
+        end
         if type(Values.MenuKey) == "string" then
-            local Key = Enum.KeyCode[Values.MenuKey]
+            local Key = FindEnum(Enum.KeyCode, Values.MenuKey)
             if Key and Key ~= Enum.KeyCode.Unknown and Key ~= Enum.KeyCode.Escape then Library:SetMenuKey(Key) end
         end
         for Flag, Value in pairs(Values) do
             local Item = Library.Items[Flag]
             if Item then
-                if Item.TypeOf == "Colorpicker" and type(Value) == "table" and Value.Kind == "Color" then
+                if Item.TypeOf == "Colorpicker" and type(Value) == "table" and Value.Kind == "Color"
+                    and type(Value.HSV) == "table" and Finite(Value.HSV[1]) and Finite(Value.HSV[2]) and Finite(Value.HSV[3]) then
                     Item:SetHue({Value = Value.HSV[1]})
                     Item:SetSaturationX({Value = Value.HSV[2]})
                     Item:SetSaturationY({Value = Value.HSV[3]})
                 elseif Item.TypeOf == "Keybind" and type(Value) == "table" and Value.Kind == "Keybind" then
                     local EnumType = Value.EnumType == "KeyCode" and Enum.KeyCode or Enum.UserInputType
-                    local Key = EnumType[Value.Key]
+                    local Key = FindEnum(EnumType, Value.Key)
                     if Key and (Value.Mode == "Hold" or Value.Mode == "Toggle" or Value.Mode == "Always") then Item:Set(Key, Value.Mode) end
-                elseif Item.Set and Item.TypeOf ~= "Keybind" then
+                elseif Item.TypeOf == "Toggle" and type(Value) == "boolean" then
+                    Item:Set(Value)
+                elseif Item.TypeOf == "Slider" and Finite(Value) then
+                    Item:Set(Value)
+                elseif Item.TypeOf == "Dropdown" and type(Value) == "string" and table.find(Item.List, Value) then
                     Item:Set(Value)
                 end
             end
@@ -504,6 +520,7 @@ do
     end
     function Library.SelfDestruct()
         if Library.Destroyed then return end
+        if Library.Features then pcall(Library.Features.Destroy, Library.Features) end
         Library.Destroyed = true
         if Library.MotionConnection then Library.MotionConnection:Disconnect(); Library.MotionConnection = nil end
         table.clear(Library.Motion)
@@ -1026,6 +1043,7 @@ do
                 table.insert(Tab.Render, SectionGlow)
                 function Section:Toggle(Options)
                     local Toggle = {
+                        TypeOf = "Toggle",
                         Axis = Section.ContentAxis,
                         Toggled = Options.State == true,
                         Drop = false,
@@ -1077,7 +1095,7 @@ do
                         ZIndex = 2
                     })
                     function Toggle:Set(State)
-                        Toggle.Toggled = State
+                        Toggle.Toggled = State == true
                         Utility.Tween(ToggleOutline, "Color", Toggle.Toggled and Library.Theme.Accent[1] or Library.Theme.DarkContrast, 0.1)
                         Library.Flags[Options.Flag] = Toggle.Toggled
                         Toggle.Callback(Toggle.Toggled)
@@ -1999,8 +2017,8 @@ do
                     end
     
                     function Slider:Set(GetValue, ConvertToMin)
-                        if GetValue > Slider.Max then return end
-                        if GetValue < Slider.Min then return end
+                        if type(GetValue) ~= "number" or GetValue ~= GetValue or math.abs(GetValue) == math.huge then return end
+                        GetValue = math.clamp(GetValue, Slider.Min, Slider.Max)
                         
                         local Bracket = 1 / Slider.Decimals
                         local DecimalsCon = math.clamp(math.round(GetValue * Bracket) / Bracket, Slider.Min, Slider.Max)
@@ -2708,7 +2726,9 @@ do
                         for Index, Value in pairs(Dropdown.ListRender.Texts) do
                             Value.Color = Library.Theme.Text
                         end
-                        Dropdown.ListRender.Texts[Selected].Color = Library.Theme.Accent[1]
+                        if Dropdown.ListRender.Texts[Selected] then
+                            Dropdown.ListRender.Texts[Selected].Color = Library.Theme.Accent[1]
+                        end
                         Dropdown.Selected = Selected
                         DropdownValue.Text = Selected
                         Dropdown.Callback(Dropdown.Selected)
@@ -2733,7 +2753,8 @@ do
                         Dropdown.Show = State
                         DropdownSymbol.Text = State and "-" or "+"
                         for Index, Value in pairs(Dropdown.ListRender.Objects) do
-                            Value.Visible = State
+                            local Info = Library.DrawingInfo[Value]
+                            Value.Visible = State and (not Info or not Info.OptionIndex or Info.OptionIndex <= #Dropdown.List)
                         end
                         for Index, Value in pairs(Dropdown.ListRender.Texts) do
                             Value.Visible = State
@@ -2742,7 +2763,7 @@ do
                     end
                     Utility.AddConnection("Theme", function(Type, Color)
                         if Type == "Accent" then
-                            Dropdown.ListRender.Texts[Dropdown.Selected].Color = Color
+                            if Dropdown.ListRender.Texts[Dropdown.Selected] then Dropdown.ListRender.Texts[Dropdown.Selected].Color = Color end
                         elseif Type == "LightContrast" then
                             DropdownOutline.Color = Color
                         elseif Type == "Text" then
@@ -2753,7 +2774,9 @@ do
                             DropdownInline.Color = Color
                         end
                     end)
-                    for Index, Value in pairs(Options.List) do
+                    Dropdown.Rows = {}
+                    local function AddOption(Index)
+                        local Value = Dropdown.List[Index]
                         local SelectionInline = Utility.AddDrawing("Square", {
                             Position = Vector2.new(DropdownInline.Position.X, (DropdownInline.Position.Y + (Index * (18)))),
                             Size = Vector2.new(SectionOutline.Size.X - 12, 18),
@@ -2813,6 +2836,9 @@ do
                         Dropdown.ListRender.Objects[#Dropdown.ListRender.Objects + 1] = SelectionOutline
                         Dropdown.ListRender.Objects[#Dropdown.ListRender.Objects + 1] = SelectionGradient
                         Dropdown.ListRender.Texts[Value] = SelectionTitle
+                        local Row = {SelectionInline, SelectionOutline, SelectionGradient, SelectionTitle}
+                        Dropdown.Rows[Index] = Row
+                        for _, Object in ipairs(Row) do Library.DrawingInfo[Object].OptionIndex = Index end
                         Utility.AddConnection("InputBegan", function(Input, Useless)
                             for Index, Value in pairs(Tab.Dropdowns[Side]) do
                                 if Index ~= DropdownTitle.Text and Value then
@@ -2820,13 +2846,35 @@ do
                                 end
                             end
                             if Input.UserInputType == Enum.UserInputType.MouseButton1 and Utility.OnMouse(SelectionInline) then
-                                Dropdown:Set(Value)
+                                local Selected = Dropdown.List[Index]
+                                if Selected then Dropdown:Set(Selected) end
                                 Dropdown:ShowList(false)
                             end
                         end)
                     end
+                    function Dropdown:SetOptions(List, Selected)
+                        assert(type(List) == "table" and #List > 0, "Dropdown needs at least one option")
+                        local Same = #List == #Dropdown.List
+                        if Same then for I, Value in ipairs(List) do if Dropdown.List[I] ~= Value then Same = false; break end end end
+                        Selected = table.find(List, Selected or Dropdown.Selected) and (Selected or Dropdown.Selected) or List[1]
+                        if Same and Selected == Dropdown.Selected then return end
+                        Dropdown:ShowList(false)
+                        Dropdown.List = table.clone(List)
+                        for I = #Dropdown.Rows + 1, #List do AddOption(I) end
+                        table.clear(Dropdown.ListRender.Texts)
+                        for I, Row in ipairs(Dropdown.Rows) do
+                            for _, Object in ipairs(Row) do Object.Visible = false end
+                            if List[I] then
+                                Row[4].Text = List[I]
+                                Dropdown.ListRender.Texts[List[I]] = Row[4]
+                            end
+                        end
+                        DropdownDetect.Size = Vector2.new(SectionOutline.Size.X - 12, (#List * Dropdown.BaseSize) + Dropdown.BaseSize)
+                        Dropdown:Set(Selected)
+                    end
+                    for Index = 1, #Dropdown.List do AddOption(Index) end
                     DropdownDetect.Position = Vector2.new(DropdownInline.Position.X, DropdownInline.Position.Y + DropdownInline.Size.Y)
-                    DropdownDetect.Size = Vector2.new(SectionOutline.Size.X - 12, (#Options.List * Dropdown.BaseSize) + Dropdown.BaseSize)
+                    DropdownDetect.Size = Vector2.new(SectionOutline.Size.X - 12, (#Dropdown.List * Dropdown.BaseSize) + Dropdown.BaseSize)
                     Dropdown:Set(Dropdown.Selected)
                     Dropdown:ShowList(false)
                     Utility.AddConnection("InputBegan", function(Input, Useless)
