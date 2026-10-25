@@ -88,7 +88,7 @@ function Methods:Move(direction, relative) self.LastMove=direction; self.Relativ
 function Methods:MoveTo(position) self.LastMoveTo=position end
 function Methods:EquipTool(tool) tool.Parent:Remove(tool); self.Parent:Add(tool) end
 typeof=function(x) return getmetatable(x)==Obj and "Instance" or getmetatable(x)==V and "Vector3" or type(x) end
-Enum={KeyCode={LeftShift="LShift",RightShift="RShift"}, UserInputType={MouseButton1="M1"},
+Enum={KeyCode={LeftShift="LShift",RightShift="RShift",W="W",A="A",S="S",D="D",Up="Up",Down="Down",Left="Left",Right="Right"}, UserInputType={MouseButton1="M1"},
     RaycastFilterType={Exclude="Exclude"}, MouseBehavior={LockCenter="Center"},
     CameraMode={Classic="Classic"},RenderPriority={Camera={Value=200},Last={Value=2000}},PathStatus={Success="Success"},
     PathWaypointAction={Jump="Jump"}}
@@ -124,10 +124,13 @@ local function setup(native)
     local run={Heartbeat=signal(),Bindings={}}
     function run:BindToRenderStep(name,_,fn) self.Bindings[name]=fn end
     function run:UnbindFromRenderStep(name) self.Bindings[name]=nil end
-    local input={MouseBehavior="Default",WindowFocusReleased=signal(),WindowFocused=signal()}
+    local input={MouseBehavior="Default",WindowFocusReleased=signal(),WindowFocused=signal(),InputBegan=signal()}
     function input:GetFocusedTextBox() return self.TextBox end
     function input:IsMouseButtonPressed() return self.PhysicalMouse or false end
-    function input:IsKeyDown() return self.PhysicalShift or false end
+    function input:IsKeyDown(key)
+        if key==Enum.KeyCode.LeftShift or key==Enum.KeyCode.RightShift then return self.PhysicalShift or false end
+        return self.Held and self.Held[key] or false
+    end
     local rs=instance("ReplicatedStorage")
     local result=instance("RefreshItemStats","RemoteEvent",instance("RemoteEvents","Folder",rs),{OnClientEvent=signal()})
     instance("MainShopRegion","Part",instance("ShopRegions","Folder",rs),{Position=Vector3.new(30,3,0)})
@@ -294,14 +297,14 @@ test("single-shot cadence is comparable across 60, 144 and 240 FPS without hitch
     assert(Presses>70 and Presses<=120,tostring(Presses))
 end)
 
-test("distance circle follows every render and reuses geometry and drawings",function()
+test("distance circle caps drawing work at 144 Hz and reuses geometry and drawings",function()
     local c=setup(); c.Lib.Flags.FarmShowCircle=true
     local casts=0
     c.World.CurrentCamera.WorldToViewportPoint=function(_,p) casts=casts+1; return Vector3.new(p.X,p.Y,1),true end
     c.A:Render(); local offsets=c.A.CircleOffsets; local points=c.A.CirclePoints; local line=c.A.Lines[1]
     Now=Now+1/240; c.Root.Position=Vector3.new(2,3,0); c.A:Render()
-    eq(casts,96); eq(c.A.CircleOffsets,offsets); eq(c.A.CirclePoints,points); eq(c.A.Lines[1],line)
-    c.Lib.Flags.FarmDistance=50; c.A:Render(); assert(c.A.CircleOffsets~=offsets)
+    eq(casts,48); Now=Now+0.02; c.A:Render(); eq(casts,96); eq(c.A.CircleOffsets,offsets); eq(c.A.CirclePoints,points); eq(c.A.Lines[1],line)
+    c.Lib.Flags.FarmDistance=50; Now=Now+0.02; c.A:Render(); assert(c.A.CircleOffsets~=offsets)
     c.Lib.Flags.FarmShowCircle=false; c.A:Visuals(c.Root); eq(line.Visible,false)
 end)
 test("head target stays until death, then switches, and respects range and walls",function()
@@ -424,14 +427,14 @@ test("navmesh route follows a corner detour instead of walking through the wall"
             GetWaypoints=function(self) return {{Position=c.Root.Position},
                 {Position=Vector3.new(0,3,7)},{Position=Vector3.new(-10,3,7)},{Position=self.To}} end}
     end
-    c.World.Block=function(_,_,d) if d.X < -0.1 and math.abs(d.Z)<1 then return {Distance=1} end end
+    c.World.Block=function(_,_,d) if d.X < -0.1 then return {Distance=1} end end
     c.A:ChooseEscape(c.Root,24); flush()
     local nav=c.A.Navigation; assert(nav.Route and #nav.Route==4)
     local direction=c.A:ChooseEscape(c.Root,24)
     assert(direction.Z>0.9); assert(math.abs(direction.X)<0.01)
 end)
 test("reset invalidates a pending retreat plan and radius has exit hysteresis",function()
-    local c=setup(); local z=c.Zombie("A",8,0); c.A:SnapshotZombies()
+    local c=setup(); c.World.Block=function() return {Distance=1} end; local z=c.Zombie("A",8,0); c.A:SnapshotZombies()
     local nav=c.A.Navigation; nav:Update(c.H,c.Root,c.A.Zombies,24)
     assert(nav.Planning); nav:Reset(); flush(); eq(nav.Route,nil)
     nav:Update(c.H,c.Root,c.A.Zombies,24); eq(nav.Active,true)
@@ -439,7 +442,7 @@ test("reset invalidates a pending retreat plan and radius has exit hysteresis",f
     z.Head.Position=Vector3.new(35,4.5,0); eq(nav:Update(c.H,c.Root,c.A.Zombies,24),nil); eq(nav.Active,false)
 end)
 test("nearby exits are tried when distant navigation goals are unreachable",function()
-    local c=setup(); c.Zombie("A",8,0); c.A:SnapshotZombies(); local tried={}
+    local c=setup(); c.World.Block=function() return {Distance=1} end; c.Zombie("A",8,0); c.A:SnapshotZombies(); local tried={}
     function c.Paths:CreatePath()
         return {Status="NoPath",ComputeAsync=function(self,from,to)
             table.insert(tried,(to-from).Magnitude); self.To=to
@@ -508,9 +511,9 @@ test("shop travel cancels on wave start and rejects stale asynchronous paths",fu
     c.Zombie("A",20,0); c.A:Upgrade(c.H,c.Root); flush()
     eq(c.A.Route,nil); eq(c.A.PathToken,nil); eq(c.Shop.Calls,0)
 end)
-test("shop travel uses native waypoints and cancellation stops MoveTo and sprint",function()
+test("shop travel follows checked waypoints through the shared movement owner",function()
     local c=setup(); c.A:TravelToShop(c.H,c.Root); flush(); c.A:TravelToShop(c.H,c.Root)
-    eq(c.A.Travelling,true); eq(c.H.LastMoveTo.X,30); eq(ShiftPresses,1)
+    eq(c.A.Travelling,true); c.A:RefreshRender(); c.A:Render(); assert(c.H.LastMove.X>0.9); eq(c.H.Relative,false); eq(ShiftPresses,1)
     c.A:CancelTravel(); eq(c.H.LastMoveTo,c.Root.Position); eq(ShiftReleases,1)
 end)
 test("path service errors clear the pending computation and back off",function()
@@ -850,6 +853,99 @@ test("removed round stats stay absent and unload removes every owned effect",fun
     for item,record in pairs(callbacks)do eq(item.Callback,record.Previous)end
 end)
 
+test("clear retreat does not compute navmesh paths and keeps a stable heading",function()
+    local c=setup();local z=c.Zombie("A",8,0);c.A:SnapshotZombies();local calls=0
+    c.Paths.CreatePath=function() calls=calls+1;error("unexpected open-space path") end
+    local first=c.A:ChooseEscape(c.Root,24);assert(first.X< -0.9)
+    for i=1,10 do Now=Now+0.05;z.Head.Position=Vector3.new(8,4.5,i%2==0 and 0.3 or -0.3)
+        local d=c.A:ChooseEscape(c.Root,24);assert(d:Dot(first)>0.99) end
+    flush();eq(calls,0)
+end)
+test("a committed retreat route is not replaced every planning interval",function()
+    local c=setup();c.Zombie("A",8,0);c.A:SnapshotZombies();local n=c.A.Navigation
+    local route={{Position=Vector3.new(0,3,0)},{Position=Vector3.new(-20,3,0)}}
+    n.Route=route;n.Index=2;n.RouteAt=Now;n.Active=true
+    local calls=0;c.Paths.CreatePath=function() calls=calls+1;error("route replacement") end
+    for i=1,5 do Now=Now+0.15;assert(c.A:ChooseEscape(c.Root,24).X<0) end
+    flush();eq(n.Route,route);eq(calls,0)
+end)
+test("passed retreat waypoints are skipped instead of walking backwards",function()
+    local c=setup();c.Zombie("A",8,0);c.A:SnapshotZombies();local n=c.A.Navigation
+    n.Route={{Position=Vector3.new(0,3,0)},{Position=Vector3.new(-5,3,0)},{Position=Vector3.new(-20,3,0)}}
+    n.Index=2;n.RouteAt=Now;n.Active=true;c.Root.Position=Vector3.new(-9,3,0)
+    local d=c.A:ChooseEscape(c.Root,24);eq(n.Index,3);assert(d.X< -0.9)
+end)
+test("a stale asynchronous retreat route is discarded after large movement",function()
+    local c=setup();c.Zombie("A",8,0);c.A:SnapshotZombies();c.World.Block=function()return {Distance=1}end
+    c.A:ChooseEscape(c.Root,24);assert(c.A.Navigation.Planning)
+    c.Root.Position=Vector3.new(-12,3,0);flush();eq(c.A.Navigation.Route,nil);eq(c.A.Navigation.Planning,false)
+end)
+test("manual movement immediately takes ownership and delays auto ready",function()
+    local c=setup();c.Zombie("A",8,0);c.A:SnapshotZombies();c.Lib.Flags.FarmKeepDistance=true;c.A:Kite(c.H,c.Root)
+    c.Input.Held={[Enum.KeyCode.W]=true};c.Input.InputBegan:Fire({KeyCode=Enum.KeyCode.W})
+    eq(c.A.MoveDirection,nil);eq(c.A.Navigation.Active,false);c.A:Step();eq(c.A.MoveDirection,nil)
+    c.Lib.Flags.FarmAutoReady=true;c.Shop.BetweenRounds=function()return true end
+    c.A:AutoReady(c.H);eq(c.Shop.ReadyCalls,nil);eq(c.A.ReadyQuietSince,nil)
+    c.Input.Held={};Now=Now+0.3;c.A:Step();assert(c.A.MoveDirection)
+end)
+test("emergency retreat prevents shop movement from taking over",function()
+    local c=setup();c.Zombie("A",5,0);c.Lib.Flags.FarmKeepDistance=true
+    local shopMoves=0;c.A.Restock=function()shopMoves=shopMoves+1;return true end
+    c.A.Upgrade=function()shopMoves=shopMoves+1;return true end
+    c.A:Step();eq(shopMoves,0);assert(c.A.MoveDirection);eq(c.A.TravelPurpose,nil)
+end)
+test("sprint recovers native stamina with hysteresis without changing its values",function()
+    local c=setup();local values=instance("PlayerValues","Folder",c.P)
+    local stamina=instance("Stamina","NumberValue",values,{Value=100});instance("StaminaMax","NumberValue",values,{Value=100})
+    c.A:Sprint(true);eq(ShiftPresses,1);stamina.Value=4;c.A:Sprint(true);eq(ShiftReleases,1)
+    stamina.Value=10;c.A:Sprint(true);eq(ShiftPresses,1);eq(stamina.Value,10)
+    stamina.Value=25;c.A:Sprint(true);eq(ShiftPresses,2);eq(stamina.Value,25)
+end)
+test("an empty weapon reloads without locking the camera onto a zombie",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);t.CurrentValues.Clip.Value=0
+    c.Zombie("A",8,0);c.Lib.Flags.FarmAutoShoot=true;c.A:SnapshotZombies()
+    local view=c.World.CurrentCamera.CFrame;c.A:PreRender(1/144);eq(c.World.CurrentCamera.CFrame,view);eq(c.A.Target,nil)
+    flush();eq(c.Guns.Weapons[t].Environment~=nil,true);eq(c.Guns.Reloaded,true)
+end)
+test("live head raycasts reuse their native ignore list between refreshes",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);local z=c.Zombie("A",8,0);local calls=0
+    local b=c.Guns:BindWeapon(t);b.Manager={GetIgnoreList=function()calls=calls+1;return {} end}
+    for i=1,30 do c.A:Visible(c.Root.Position,z,t) end;eq(calls,1)
+    Now=Now+0.26;c.A:Visible(c.Root.Position,z,t);eq(calls,2)
+end)
+test("server damage flashes the hit indicator without RemoteHitmarker",function()
+    local c=visualFixture();c.Damage.OnClientEvent:Fire(60);eq(c.V.LastHit,Now)
+    c.V:Render();eq(c.V.HitLines[1].Core.Visible,true);eq(c.V.DamageText.Visible,true)
+end)
+test("native visual rays without zombie references reconstruct contact and respect walls",function()
+    local c=visualFixture();local t=c.Weapon("Pistol",c.P.Character);local z=c.Zombie("A",8,0)
+    c.World.Ray=function()return {Instance=z.Head}end
+    c.Fire.Event:Fire(c.P,t,nil,{{z.Head.Position,nil,nil}});assert(c.V.Chams[z.Model])
+    c.V:Destroy();c=visualFixture();t=c.Weapon("Pistol",c.P.Character);z=c.Zombie("A",8,0)
+    local wall=instance("Wall","Part",c.World);c.World.Ray=function()return {Instance=wall}end
+    c.Fire.Event:Fire(c.P,t,nil,{{z.Head.Position,nil,nil}});eq(next(c.V.Chams),nil)
+end)
+test("shot-contact ray work is bounded during rapid fire and shotguns",function()
+    local c=visualFixture();local t=c.Weapon("Pistol",c.P.Character);local rays={};local casts=0
+    c.World.Ray=function()casts=casts+1;return nil end
+    for i=1,40 do rays[i]={Vector3.new(10,4,0)} end
+    c.Fire.Event:Fire(c.P,t,nil,rays);eq(casts,4)
+    c.Fire.Event:Fire(c.P,t,nil,rays);eq(casts,4)
+    Now=Now+0.04;c.Fire.Event:Fire(c.P,t,nil,rays);eq(casts,8)
+end)
+
+test("shop and ammo travel stop before a new wall rather than pushing into it",function()
+    local c=setup();c.A:TravelToShop(c.H,c.Root);flush()
+    c.World.Block=function()return {Distance=1}end;c.A:TravelToShop(c.H,c.Root)
+    eq(c.A.Route,nil);eq(c.A.MoveDirection,nil);assert(c.A.PathFailedUntil>Now)
+end)
+test("visual work follows a 144 Hz deadline at a 240 FPS input rate",function()
+    local c=visualFixture();local render=c.V.Render;local calls=0
+    c.V.Render=function(self)calls=calls+1;return render(self)end
+    for i=0,239 do Now=100+i/240;c.Run.Bindings.NeoperroHitVisuals()end
+    assert(calls>=140 and calls<=145,tostring(calls))
+end)
+
 -- Input routing regression: production Library methods, mocked hitboxes only.
 local function bindingFixture()
     local e=setmetatable({}, {__index=_G})
@@ -905,7 +1001,7 @@ end)
 test("None explicitly clears a Hold binding without changing the checkbox",function()
     local e=bindingFixture();e.Keybind.Key=e.Enum.KeyCode.F7;e.Keybind.StateType="Hold";e.Keybind.Dropped=true
     e.MouseTarget=e.KeybindNoneInline;e:Dispatch(e:Input("MouseButton1"))
-    eq(e.Keybind.Key,e.Enum.KeyCode.Unknown);eq(e.Keybind.StateType,"Toggle");eq(e.KeybindValue.Text,"None");eq(e.Toggle.Toggled,true)
+    eq(e.Keybind.Key,e.Enum.KeyCode.Unknown);eq(e.Keybind.StateType,"Toggle");eq(e.KeybindValue.Text,"NONE");eq(e.Toggle.Toggled,true)
     e.Library.WindowVisible=false;e:Dispatch(e:Input("MouseButton2"));eq(e.Toggle.Toggled,true)
 end)
 test("intentional mouse binds work only with the menu hidden",function()

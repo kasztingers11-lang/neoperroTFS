@@ -590,18 +590,18 @@ do
         assert(typeof(Key) == "EnumItem" and Key.EnumType == Enum.KeyCode and Key ~= Enum.KeyCode.Unknown and Key ~= Enum.KeyCode.Escape, "Choose a keyboard key other than Escape")
         Library.MenuKey = Key
         Library.Flags.MenuKey = Key.Name
-        if Library.MenuKeyButton then Library.MenuKeyButton:SetText("show / hide UI: " .. Key.Name) end
+        if Library.MenuKeyButton then Library.MenuKeyButton:SetText("SHOW / HIDE UI: " .. string.upper(Key.Name)) end
     end
     function Library:BeginMenuKeyCapture()
         Library.CapturingMenuKey = true
-        if Library.MenuKeyButton then Library.MenuKeyButton:SetText("press a key (Esc cancels)") end
+        if Library.MenuKeyButton then Library.MenuKeyButton:SetText("PRESS A KEY (ESC CANCELS)") end
     end
     function Library.HandleMenuInput(Input)
         if Library.CapturingMenuKey then
             if Input.UserInputType ~= Enum.UserInputType.Keyboard then return true end
             Library.CapturingMenuKey = false
             if Input.KeyCode ~= Enum.KeyCode.Escape and Input.KeyCode ~= Enum.KeyCode.Unknown then Library:SetMenuKey(Input.KeyCode)
-            elseif Library.MenuKeyButton then Library.MenuKeyButton:SetText("show / hide UI: " .. Library.MenuKey.Name) end
+            elseif Library.MenuKeyButton then Library.MenuKeyButton:SetText("SHOW / HIDE UI: " .. Library.MenuKey.Name) end
             return true
         end
         if UserInput:GetFocusedTextBox() then return true end
@@ -1669,7 +1669,7 @@ do
                             Keybind.Callback(Keybind.State, Keybind.Key)
                             Library.Flags[Options.Flag] = true
                         end
-                        Keybind.Shorten = Keybind.Key == Enum.KeyCode.Unknown and "None" or Library.Keys.Shortened[Keybind.Key.Name] or Keybind.Key.Name
+                        Keybind.Shorten = Keybind.Key == Enum.KeyCode.Unknown and "NONE" or Library.Keys.Shortened[Keybind.Key.Name] or Keybind.Key.Name
                         Keybind.ShowRender = ("[%s] %s"):format(Keybind.Shorten, Options.Title)
                         local KeybindInline = Utility.AddDrawing("Square", {
                             Position = Vector2.new(SectionInline.Position.X + SectionInline.Size.X - 40 - 6, SectionInline.Position.Y + Keybind.Axis + 2),
@@ -1732,7 +1732,7 @@ do
                             ZIndex = 3
                         })
                         local KeybindHoldValue = Utility.AddDrawing("Text", {
-                            Text = "Hold",
+                            Text = "HOLD",
                             Position = Vector2.new(KeybindHoldInline.Position.X + (KeybindHoldInline.Size.X / 2), KeybindHoldInline.Position.Y),
                             Center = true,
                             Outline = false,
@@ -1768,7 +1768,7 @@ do
                             ZIndex = 3
                         })
                         local KeybindToggleValue = Utility.AddDrawing("Text", {
-                            Text = "Toggle",
+                            Text = "TOGGLE",
                             Position = Vector2.new(KeybindToggleInline.Position.X + (KeybindToggleInline.Size.X / 2), KeybindToggleInline.Position.Y),
                             Center = true,
                             Outline = false,
@@ -1805,7 +1805,7 @@ do
                             ZIndex = 3
                         })
                         local KeybindAlwaysValue = Utility.AddDrawing("Text", {
-                            Text = "Set key...",
+                            Text = "SET KEY...",
                             Position = Vector2.new(KeybindAlwaysInline.Position.X + (KeybindAlwaysInline.Size.X / 2), KeybindAlwaysInline.Position.Y),
                             Center = true,
                             Outline = false,
@@ -1824,7 +1824,7 @@ do
                             Filled = true, Color = Library.Theme.LightContrast, Visible = false, ZIndex = 3
                         })
                         local KeybindNoneValue = Utility.AddDrawing("Text", {
-                            Text = "None", Position = KeybindNoneInline.Position + Vector2.new(48, 2), Center = true,
+                            Text = "NONE", Position = KeybindNoneInline.Position + Vector2.new(48, 2), Center = true,
                             Color = Library.Theme.Text, Font = Library.Theme.Font, Size = Library.Theme.TextSize, Visible = false, ZIndex = 3
                         })
                         function Keybind:Drop(State)
@@ -1974,7 +1974,7 @@ do
                             assert(typeof(Key) == "EnumItem" and (Key.EnumType == Enum.KeyCode or Key.EnumType == Enum.UserInputType), "Invalid binding")
                             self.Key = Key
                             self.EnumType = Key.EnumType == Enum.KeyCode and "KeyCode" or "UserInputType"
-                            self.Shorten = Key == Enum.KeyCode.Unknown and "None" or Library.Keys.Shortened[Key.Name] or Key.Name
+                            self.Shorten = Key == Enum.KeyCode.Unknown and "NONE" or Library.Keys.Shortened[Key.Name] or Key.Name
                             self.Binding = false
                             KeybindValue.Text = self.Shorten
                             KeybindValue.Color = Key == Enum.KeyCode.Unknown and Library.Theme.TextInactive or Library.Theme.Text
@@ -3110,7 +3110,7 @@ do
                         Visible = true
                     })
                     local KeybindHoldValue = Utility.AddDrawing("Text", {
-                        Text = "Hold",
+                        Text = "HOLD",
                         Position = Vector2.new(KeybindHoldInline.Position.X + (KeybindHoldInline.Size.X / 2), KeybindHoldInline.Position.Y),
                         Center = true,
                         Outline = false,
@@ -3144,7 +3144,7 @@ do
                         Visible = true
                     })
                     local KeybindToggleValue = Utility.AddDrawing("Text", {
-                        Text = "Toggle",
+                        Text = "TOGGLE",
                         Position = Vector2.new(KeybindToggleInline.Position.X + (KeybindToggleInline.Size.X / 2), KeybindToggleInline.Position.Y),
                         Center = true,
                         Outline = false,

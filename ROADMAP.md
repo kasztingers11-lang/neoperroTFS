@@ -9,3 +9,12 @@ These are proposals, not implemented features or newly tested purchases. They co
 5. **Between-wave maintenance order.** Extend the existing native repair path to prioritize shop/barricade/armor repairs where available, then upgrades/resupply, then Ready. Keep spending opt-in, serialized and stop on uncertain results.
 
 The most useful next step is a native ammo-box upgrade planner plus a resupply cash budget. Both build on real game systems that can be checked rather than reviving failed instant-refill or piercing methods.
+
+## Proposals after the movement recording
+
+- **Reserve-first resupply budget:** prioritize main-box restock and native AmmoSpeed before optional weapon upgrades, so an empty 0/0 gun does not depend on unavailable nighttime stock.
+- **Threat-speed distance:** estimate actual closing speed and choose a sustainable retreat gap instead of using distance alone; account for stamina recovery and avoid increasing the radius beyond reachable space.
+- **Reachable resupply fallback:** rank alternate permitted boxes by reachable route, stock and threat exposure, with a player-selected fallback when no safe stocked box exists.
+- **Optional route preview:** display only the committed collision-checked route and destination, making blocked exits visible without restoring the removed status paragraphs.
+
+These remain proposals. Stable steering, checked travel ownership, manual override and stamina-aware sprint are already implemented in the current repair.

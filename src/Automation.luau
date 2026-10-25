@@ -75,6 +75,17 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         self.MouseMode = nil
     end
     function A:Sprint(State)
+        if State then
+            local Values = P:FindFirstChild("PlayerValues")
+            local Current = Values and Values:FindFirstChild("Stamina")
+            local Maximum = Values and Values:FindFirstChild("StaminaMax")
+            if Current and Maximum and Maximum.Value > 0 then
+                local Ratio = Current.Value / Maximum.Value
+                if Ratio <= 0.05 then self.SprintRecovering = true end
+                if Ratio >= 0.25 or (self.Nearest or math.huge) < 8 and Ratio >= 0.08 then self.SprintRecovering = false end
+                if self.SprintRecovering then State = false end
+            end
+        end
         if not State and self.SprintOwned then self.SprintReleasePending = true end
         if self.SprintReleasePending and self:NativeFocused() then
             keyrelease(0xA0); self.SprintOwned = false; self.SprintReleasePending = false
@@ -83,6 +94,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             and not Input:IsKeyDown(Enum.KeyCode.LeftShift) and not Input:IsKeyDown(Enum.KeyCode.RightShift) then
             keypress(0xA0); self.SprintOwned = true
         end
+    end
+    function A:ManualMovement()
+        if not self:NativeFocused() then return false end
+        for _, Key in ipairs({Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
+            Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right}) do
+            if Input:IsKeyDown(Key) then self.ManualUntil = os.clock() + 0.25; return true end
+        end
+        return os.clock() < (self.ManualUntil or 0)
     end
     function A:StopMovement()
         if self.MovingHumanoid and self.MovingHumanoid.Parent then
@@ -201,16 +220,22 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         return Params
     end
     function A:Visible(Origin, Z, Tool)
-        local Params = self:Params(false)
-        local B = Tool and Guns.Weapons[Tool]
-        if B and B.Manager and type(B.Manager.GetIgnoreList) == "function" then
-            local OK, List = pcall(B.Manager.GetIgnoreList, B.Manager)
-            if OK and type(List) == "table" then
-                local Ignore = Params.FilterDescendantsInstances
-                for _, Item in ipairs(List) do if typeof(Item) == "Instance" then table.insert(Ignore, Item) end end
-                Params.FilterDescendantsInstances = Ignore
+        local Cache = self.VisibilityCache
+        if not Cache or Cache.Tool ~= Tool or Cache.Character ~= P.Character or Cache.Camera ~= W.CurrentCamera or os.clock() >= Cache.Expires then
+            local Params = self:Params(false)
+            local B = Tool and Guns.Weapons[Tool]
+            if B and B.Manager and type(B.Manager.GetIgnoreList) == "function" then
+                local OK, List = pcall(B.Manager.GetIgnoreList, B.Manager)
+                if OK and type(List) == "table" then
+                    local Ignore = Params.FilterDescendantsInstances
+                    for _, Item in ipairs(List) do if typeof(Item) == "Instance" then table.insert(Ignore, Item) end end
+                    Params.FilterDescendantsInstances = Ignore
+                end
             end
+            Cache = {Tool = Tool, Character = P.Character, Camera = W.CurrentCamera, Params = Params, Expires = os.clock() + 0.25}
+            self.VisibilityCache = Cache
         end
+        local Params = Cache.Params
         local Hit = W:Raycast(Origin, Z.Head.Position - Origin, Params)
         return Hit == nil or Hit.Instance:IsDescendantOf(Z.Model)
     end
@@ -252,6 +277,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:Equip(H, Preferred)
         if self.Equipping or os.clock() < (self.NextEquip or 0) then return end
+        self.NextEquip = os.clock() + 0.35
         local Bag = P:FindFirstChildOfClass("Backpack")
         local Best = Preferred
         if Bag and not Best then
@@ -412,8 +438,19 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
                 if (Root.Position - self.ProgressPosition).Magnitude < 1 then self.Route = nil; self:StopMovement(); return end
                 self.ProgressPosition = Root.Position; self.ProgressAt = os.clock()
             end
-            self.MovingHumanoid = H; self.Travelling = true; self.MoveDirection = nil
-            H:MoveTo(Point.Position)
+            local Direction = Unit(Flat(Point.Position - Root.Position))
+            local Params = self.Navigation:Params(Root)
+            if IgnoreDestinationModel then
+                local Ignore = Params.FilterDescendantsInstances
+                table.insert(Ignore, IgnoreDestinationModel); Params.FilterDescendantsInstances = Ignore
+            end
+            local Ground = self.Navigation:Ground(Root.Position, Params)
+            if not Ground or not self.Navigation:Segment(Root, Direction, math.min(5, (Point.Position - Root.Position).Magnitude), Params, Ground.Position.Y) then
+                self.Route = nil; self.PathFailedUntil = os.clock() + 1; self:StopMovement(); return
+            end
+            -- Share the per-frame movement owner with retreat; native MoveTo
+            -- alone can be cancelled by the normal player control update.
+            self.MovingHumanoid = H; self.Travelling = true; self.MoveDirection = Direction
             if Point.Action == Enum.PathWaypointAction.Jump then H.Jump = true end
             self:Sprint(Flags.FarmUseSprint == true)
         end
@@ -606,7 +643,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not Flags.FarmAutoReady then self.ReadyQuietSince = nil; return end
         if not H or not self:Focused() or not self.Shop:BetweenRounds() then self.ReadyQuietSince = nil; return end
         local Busy = self.Shop.Pending or self.Shop.RestockPending or self.Refill.Pending or self.Travelling or self.PathComputing
-            or self.UnconfirmedWeapon or self.RestockError
+            or self.UnconfirmedWeapon or self.RestockError or os.clock() < (self.ManualUntil or 0)
             or Flags.UpgradeEnabled and not self.UpgradeIdle
         if not Busy and Flags.FarmAutoRefill then Busy = self:AmmoTool() ~= nil end
         if Busy then self.ReadyQuietSince = nil; Status("ReadyStatus", "Finishing enabled shop / ammo tasks"); return end
@@ -617,28 +654,11 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:HideVisuals()
         for _, Line in ipairs(self.Lines) do Line.Visible = false end
-        if self.DistanceText then self.DistanceText.Visible = false end
     end
     function A:Visuals(Root)
         local Camera = W.CurrentCamera
         if not Root or not Camera then self:HideVisuals(); return end
         local Now = os.clock()
-        if self.DistanceText then self.DistanceText.Visible = Flags.FarmShowDistance == true end
-        if Flags.FarmShowDistance and Now >= (self.NextDistanceText or 0) then
-            self.NextDistanceText = Now + 0.1
-            if not self.DistanceText then
-                self.DistanceText = Drawing.new("Text"); self.DistanceText.Size = 14
-                self.DistanceText.Font = Drawing.Fonts.UI; self.DistanceText.Center = true
-                self.DistanceText.Outline = true; self.DistanceText.Color = Color3.fromRGB(200, 65, 75)
-            end
-            local Nearest = math.huge
-            for _, Z in ipairs(self.Zombies) do
-                if Z.Head.Parent and Z.Humanoid.Health > 0 then Nearest = math.min(Nearest, Flat(Root.Position - Z.Head.Position).Magnitude) end
-            end
-            self.DistanceText.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y * 0.7)
-            self.DistanceText.Text = Nearest < math.huge and string.format("Nearest zombie: %.0f studs", Nearest) or "No live zombies"
-            self.DistanceText.Visible = true
-        end
         if Flags.FarmShowCircle then
             local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
             if self.CircleRadius ~= Radius then
@@ -674,24 +694,32 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:Step()
         local Now = os.clock()
-        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled or Flags.FarmAutoRefill or Flags.FarmRestockBox or Flags.FarmAutoReady
+        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled or Flags.FarmAutoRefill or Flags.FarmRestockBox or Flags.FarmAutoReady
         if self.InventoryDirty or (Active or Library.WindowVisible) and Now - self.LastScan >= 1 then self:ScanInventory() end
         self:CameraState()
         local _, H, Root = self:Character()
-        if Active and self:Focused() then self:SnapshotZombies() end
-        local Restocking = self:Restock(H, Root)
-        local Travelling = not Restocking and self:Upgrade(H, Root)
+        if Active and self:Focused() and Now - (self.LastZombieScan or -10) >= 0.1 then self:SnapshotZombies() end
+        local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
+        local Distance = Root and self.Navigation:Separation(Root.Position, self.Zombies) or math.huge
+        local Danger = Flags.FarmKeepDistance and (Distance < Radius or self.Navigation.Active and Distance < Radius + 8)
+        local Manual = self:ManualMovement()
+        local Restocking, Travelling = false, false
+        -- Emergency retreat owns movement; shop travel cannot steer against it.
+        -- Already-submitted transactions still need their normal completion polling.
+        if not Danger and not Manual or self.Shop.Pending or self.Shop.RestockPending then
+            Restocking = self:Restock(H, Root)
+            Travelling = not Restocking and self:Upgrade(H, Root)
+        end
         if not H or not self:Focused() or self.Shop.Pending or self.Shop.RestockPending then
             self:ReleaseAim(); self:StopMovement(); self:CancelTravel(); self.Navigation:Reset()
             self.Refill:Poll()
             if Flags.FarmAutoShoot or Flags.FarmKeepDistance then Status("FarmStatus", not H and "Waiting for respawn" or "Hide UI and focus Roblox") end
+        elseif Manual then
+            self:StopMovement(); self:CancelTravel(); self.Navigation:Reset()
         elseif Travelling or Restocking then self:ReleaseAim(); self.Navigation:Reset()
         else
             if self.TravelPurpose == "shop" then self:CancelTravel() end
-            local Distance = self.Navigation:Separation(Root.Position, self.Zombies)
-            local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
-            local Retreat = Flags.FarmKeepDistance and (Distance < Radius or self.Navigation.Active and Distance < Radius + 8)
-            if Retreat then
+            if Danger then
                 self:CancelTravel(); self:Kite(H, Root, Radius)
                 self.Refill:Poll(); Status("AmmoStatus", Flags.FarmAutoRefill and "Retreating before resupply" or "Auto refill off")
             else
@@ -726,6 +754,10 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         local Tool = self:Equipped()
         if not Tool then self:ReleaseAim(); self:Equip(H); Status("FarmStatus", "Equipping an available gun"); return end
+        if Value(Tool, "Clip", 0) == 0 then
+            self:ReleaseAim(); self:Shoot(Tool); return
+        end
+        if self.Reloading then self:ReleaseAim(); return end
         local B = Guns.Weapons[Tool] or Guns:BindWeapon(Tool)
         local Range = B and B.Environment.Range or Value(Tool, "Range", 0)
         local Head = P.Character:FindFirstChild("Head")
@@ -743,8 +775,12 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not self.Alive then return end
         local _, H, Root = self:Character()
         if H and self:Focused() and self.MoveDirection then H:Move(self.MoveDirection, false) end
-        if Flags.FarmShowCircle or os.clock() - self.LastVisual >= 0.1 then
-            self.LastVisual = os.clock(); self:Visuals(Root)
+        local Now = os.clock()
+        if Now >= (self.NextVisual or 0) then
+            local Interval = Flags.FarmShowCircle and 1 / 144 or 0.1
+            local Next = (self.NextVisual or Now) + Interval
+            self.NextVisual = Next > Now and Next or Now + Interval
+            self.LastVisual = Now; self:Visuals(Root)
         end
     end
     function A:Fail(Error)
@@ -755,7 +791,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         self:RefreshRender()
     end
     function A:RefreshRender()
-        local Need = not self.Failed and (Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle)
+        local Need = not self.Failed and (Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowCircle or self.Travelling)
         if Need and not self.Rendering then
             self.Rendering = true
             Run:BindToRenderStep(RenderName .. "Aim", Enum.RenderPriority.Camera.Value + 1, function(DeltaTime)
@@ -789,7 +825,6 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         self.Shop:Destroy(); self.Navigation:Destroy(); self.Refill:Destroy(); Guns:SetSuspended(false)
         local Third = Flags.CameraThirdPerson; Flags.CameraThirdPerson = false; self:CameraState(); Flags.CameraThirdPerson = Third
         for _, Line in ipairs(self.Lines) do Line:Remove() end
-        if self.DistanceText then self.DistanceText:Remove() end
     end
     local function Own(Key, Action)
         local Item = Library.Items[Key]
@@ -820,7 +855,6 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end)
     Own("FarmRestockBox", function(V) if not V and not Flags.UpgradeEnabled then A:CancelTravel() end end)
     Own("FarmUseSprint", function(V) if not V then A:Sprint(false) end end)
-    Own("FarmShowDistance", function() A:HideVisuals() end)
     Own("FarmShowCircle", function() A:HideVisuals() end)
     Own("CameraThirdPerson", function() A:CameraState() end)
     Own("CameraDistance", function() A:CameraState() end)
@@ -839,8 +873,18 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     A:Watch("Character", P.Character)
     A:Watch("Backpack", P:FindFirstChildOfClass("Backpack"))
     A:Watch("Backgear", P:FindFirstChild("Backgear")); A:Watch("Upgrades", P:FindFirstChild("Upgrades"))
+    Connect(Input.InputBegan, function(Event)
+        local K = Event.KeyCode
+        if K == Enum.KeyCode.W or K == Enum.KeyCode.A or K == Enum.KeyCode.S or K == Enum.KeyCode.D
+            or K == Enum.KeyCode.Up or K == Enum.KeyCode.Down or K == Enum.KeyCode.Left or K == Enum.KeyCode.Right then
+            if A:NativeFocused() then
+                A.ManualUntil = os.clock() + 0.25
+                A:StopMovement(); A:CancelTravel(); A.Navigation:Reset()
+            end
+        end
+    end)
     Connect(Run.Heartbeat, function()
-        if not A.Alive or os.clock() - A.LastStep < 0.1 then return end
+        if not A.Alive or os.clock() - A.LastStep < 0.05 then return end
         A.LastStep = os.clock()
         if A.Failed then
             if A.Shop.Pending then pcall(A.Upgrade, A, nil, nil) end

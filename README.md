@@ -1,6 +1,6 @@
 # neoperroTFS
 
-The original [Abyss layout](https://github.com/Eazvy/UILibs/blob/main/Librarys/Abyss/Example), with a readable system font, black surfaces, dark-red glow and restrained fades. The rectangular 500 × 620 structure and exact original logo remain. There is no color cycling.
+The original [Abyss layout](https://github.com/Eazvy/UILibs/blob/main/Librarys/Abyss/Example), with a readable system font, black surfaces, dark-red glow and restrained fades. Feature/tab labels use capitals. Requested status/explanation lines and SHOW DISTANCE are removed; SHOW DISTANCE CIRCLE remains. The rectangular 500 × 620 structure and exact original logo remain. There is no color cycling.
 
 ## Run
 
@@ -9,7 +9,7 @@ Execute `loader.luau` in Real, or execute `dist/neoperroTFS.luau` directly. Righ
 ## Main
 
 - **Gun mods:** Rapid Fire, No Spread and No Recoil. Fire rate is 1–120 requested shots/second, default 60; actual throughput depends on weapon, frames and server acceptance. Failed ammo/reload/range/piercing modifications and Wallbang are removed.
-- **Autofarm:** head targeting before the native gun update, native range/line-of-sight/reload, loaded-backup selection, wall/ground-aware retreat and asynchronous navmesh detours. Charge weapons require manual firing. Third person restores the freely controlled visible camera after the targeting phase. There is no survival guarantee.
+- **Autofarm:** head targeting before the native gun update, native range/line-of-sight/reload, loaded-backup selection, stable wall/ground-aware retreat and asynchronous navmesh detours. Clear escape headings do not request paths; committed routes persist, passed waypoints are skipped and stale results are discarded. Body/ground checks run before retreat or resupply/shop movement. Manual movement takes priority and native stamina recovery uses sprint hysteresis without changing stamina values. Charge weapons require manual firing. Third person restores the freely controlled visible camera after the targeting phase. There is no survival guarantee.
 - **Auto refill ammo:** configurable reserve trigger (5–80%, default 30%) and optional between-wave top-up. The controller selects a stocked permitted nearby box, travels normally, waits for a safe gap, and performs the native timed interaction. Failed boxes back off eight seconds. Ammo remains supplied by native responses; magazines still reload normally.
 - **Auto restock ammo box:** between rounds during daytime, optionally travels to the shop and uses its native game-cash repair handler when main-box stock is below the selected threshold. Cash, shop/first-night restrictions and shared transaction locks apply. One attempt per round; optimistic native changes are labelled submitted, not confirmed.
 - **Auto upgrade:** discovers owned weapons and real upgrade categories. Select a weapon, priority and selected-only/all-upgrades mode. Native price, locks, cash and confirmation govern purchases. An uncertain purchase blocks further attempts for that weapon this session. The user confirmed upgrades work after the selection repair.
@@ -31,8 +31,8 @@ An open menu, text editing or key capture still pauses farming. The menu release
 The visuals tab has three independent effects, enabled by default:
 
 - **Bullet tracers:** red glow with a white core, using native local shot rays; adjustable lifetime.
-- **Hit chams:** short client-only red/white flashes on zombie shot contact. Occluded highlights, not through-wall overlays. Local contact is not separate server confirmation of target damage.
-- **Hit indicator:** fading center marker and damage number from native server hit/damage notifications; adjustable flash duration.
+- **Hit chams:** short client-only red/white flashes on zombie shot contact. Native visual rays omit zombie references, so a bounded local ray reconstruction resolves contact while respecting intervening geometry. Occluded highlights, not through-wall overlays. Local contact is not separate server confirmation of target damage.
+- **Hit indicator:** fading center marker and damage number from native server hit/damage notifications. Positive ReturnServerDamage also triggers the marker because ordinary hits do not necessarily emit RemoteHitmarker; adjustable flash duration.
 
 Effects stay visible when the menu is hidden. Tracers are pooled (maximum 96 segments), chams capped at 16, and all effects clean up on unload. Round stats, its controls, counters and HUD have been removed.
 
@@ -46,9 +46,9 @@ Unassigned keys never match mouse `Unknown` key codes. Feature shortcuts run onl
 
 `src/Library.luau` renders the UI; `Features` manages gun changes; `Automation` coordinates gameplay; `Navigation`, `AmmoAdapter` and `ShopAdapter` wrap native movement, refill and shop interactions; `Visuals` owns shot effects. Native closure layouts are guarded against the inspected game v312. Native firing packets are not rewritten.
 
-Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for four packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 62 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
+Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for four packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 76 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
 
-The final bundle passed local Luau compilation and local analysis with no diagnostics. Render work follows frames; scans/pathfinding are throttled, transactions serialized and visual object counts bounded. Cadence is tested at simulated 60/144/240 FPS; this is not a measured 240 FPS performance claim. UI input uses five shared engine signals and a temporary animation connection while transitions run. See [VALIDATION.md](VALIDATION.md) for evidence and [ROADMAP.md](ROADMAP.md) for game-based proposals.
+The final bundle passed local Luau compilation and local analysis with no diagnostics. Aim follows every rendered frame. Movement decisions run at up to 20 Hz, live-head raycasts reuse native ignore-list parameters for 0.25 seconds, inventory stays throttled and transactions are serialized. Empty guns reload/switch without needless camera locking. Overlay deadlines cap at 144 Hz without catch-up bursts; shot-contact scans cap at four rays per event and 30 events/second. Inactive tracer handles receive no per-frame property writes. Cadence is tested at simulated 60/144/240 FPS; this is not a measured 240 FPS performance claim. UI input uses five shared engine signals and a temporary animation connection while transitions run. See [VALIDATION.md](VALIDATION.md) for evidence and [ROADMAP.md](ROADMAP.md) for game-based proposals.
 
 ## Logo
 

@@ -46,24 +46,37 @@ return function()
         return true, Clearance
     end
     function N:LocalDirection(Root, Zombies, Radius, Params, FloorY, Away)
+        local Nearest = self:Separation(Root.Position, Zombies)
+        local function Score(D)
+            if not D or D.Magnitude < 0.01 then return nil end
+            local Valid, Clearance = self:Segment(Root, D, 8, Params, FloorY)
+            if not Valid then return nil end
+            local Safe = self:Separation(Root.Position + D * math.min(7, Clearance - 0.8), Zombies)
+            if Safe < math.max(1, math.min(Nearest - 1.5, 6)) then return nil end
+            local Value = math.min(Safe, Radius + 20) * 3 + D:Dot(Away) * 5 + Clearance
+            if self.StuckDirection then Value = Value - math.max(0, D:Dot(self.StuckDirection)) * 18 end
+            return Value, Safe
+        end
+        local DirectScore, DirectSafety = Score(Away)
+        self.DirectClear = DirectScore ~= nil and DirectSafety >= Nearest + 1 and not self.StuckDirection
+        local OldScore = Score(self.LastDirection)
+        if self.DirectClear then
+            -- Keep a safe heading across small target motion, rather than zigzagging.
+            if OldScore and self.LastDirection:Dot(Away) > 0.8 and OldScore >= DirectScore - 3 then return self.LastDirection end
+            return Away
+        end
         local Best, BestScore = nil, -math.huge
         for I = 0, 15 do
             local Angle = I * math.pi / 8
             local D = Vector3.new(math.cos(Angle), 0, math.sin(Angle))
-            local Valid, Clearance = self:Segment(Root, D, 8, Params, FloorY)
-            if Valid then
-                local End = Root.Position + D * math.min(7, Clearance - 0.8)
-                local Safe = self:Separation(End, Zombies)
-                local Score = math.min(Safe, Radius + 20) * 3 + D:Dot(Away) * 5 + Clearance
-                if self.LastDirection then Score = Score + D:Dot(self.LastDirection) * 2 end
-                if self.StuckDirection then Score = Score - math.max(0, D:Dot(self.StuckDirection)) * 18 end
-                if Score > BestScore then Best = D; BestScore = Score end
-            end
+            local Value = Score(D)
+            if Value and Value > BestScore then Best = D; BestScore = Value end
         end
+        if OldScore and OldScore >= BestScore - 3 then return self.LastDirection end
         return Best
     end
     function N:Plan(Root, Zombies, Radius, Away, Params, FloorY)
-        if self.Planning or os.clock() < self.NextPlan then return end
+        if self.Route or self.Planning or os.clock() < self.NextPlan then return end
         self.Planning = true; self.NextPlan = os.clock() + 0.8
         local Token = {}; self.Token = Token
         local Start = Root.Position
@@ -106,17 +119,20 @@ return function()
                         if Separation < math.min(8, math.max(1, InitialDistance - 2)) then Safe = false end
                     end
                     local Score = Candidate.Score + math.min(MinDistance, Radius + 15) * 2 - Length * 0.1
-                    if Safe and Score > BestScore then Best = Route; BestScore = Score end
+                    if Safe and Score > BestScore then Best = Route; BestScore = Score; break end
                 end
             end
             if not self.Alive or self.Token ~= Token then return end
             self.Planning = false
-            if Best then self.Route = Best; self.Index = 2; self.RouteAt = os.clock(); self.JumpIndex = nil end
+            if Best and (Root.Position - Start).Magnitude < 10 then
+                self.Route = Best; self.Index = 2; self.RouteAt = os.clock(); self.JumpIndex = nil
+            end
         end)
     end
     function N:Reset()
         self.Token = nil; self.Planning = false; self.Route = nil; self.Active = false
         self.LastDirection = nil; self.Position = nil; self.NextPlan = 0
+        self.Index = nil; self.RouteAt = nil; self.StuckDirection = nil; self.StuckUntil = nil; self.DirectClear = nil
     end
     function N:Update(H, Root, Zombies, Radius)
         local Nearest, Away = self:Separation(Root.Position, Zombies)
@@ -136,11 +152,21 @@ return function()
             end
             self.Position = Root.Position; self.LastProgress = os.clock()
         end
-        self:Plan(Root, Zombies, Radius, Away, Params, Ground.Position.Y)
         local Direction
         if self.Route then
             local Point = self.Route[self.Index]
-            while Point and (Point.Position - Root.Position).Magnitude < 3 do
+            local function Reached()
+                if not Point then return false end
+                if (Point.Position - Root.Position).Magnitude < 3 then return true end
+                local Previous = self.Route[self.Index - 1]
+                if not Previous then return false end
+                local Segment = Flat(Point.Position - Previous.Position)
+                local Offset = Flat(Root.Position - Point.Position)
+                if Segment.Magnitude < 0.01 then return true end
+                local Forward = Segment.Unit
+                return Offset:Dot(Forward) >= 0 and (Offset - Forward * Offset:Dot(Forward)).Magnitude < 3
+            end
+            while Reached() do
                 if Point.Action == Enum.PathWaypointAction.Jump then H.Jump = true end
                 self.Index = self.Index + 1; Point = self.Route[self.Index]
             end
@@ -153,7 +179,11 @@ return function()
                 if not Valid then self.Route = nil; self.NextPlan = 0; Direction = nil end
             else self.Route = nil; self.NextPlan = 0 end
         end
-        if not Direction or Direction.Magnitude < 0.01 then Direction = self:LocalDirection(Root, Zombies, Radius, Params, Ground.Position.Y, Away) end
+        if not Direction or Direction.Magnitude < 0.01 then
+            Direction = self:LocalDirection(Root, Zombies, Radius, Params, Ground.Position.Y, Away)
+            -- Navmesh is a detour fallback, not a constantly replaced movement target.
+            if not self.DirectClear then self:Plan(Root, Zombies, Radius, Away, Params, Ground.Position.Y) end
+        end
         self.LastDirection = Direction
         self.Status = Direction and "Retreating via clear path" or "Blocked; searching for a route"
         return Direction

@@ -7,7 +7,7 @@ return function(Library: any, Window: any)
     local W: any = workspace
     local Flags = Library.Flags
     local V: any = {Alive = true, Connections = {}, Callbacks = {}, Tracers = {}, Chams = {},
-        Drawings = {}, LastHit = -10, DamageAt = -10}
+        Drawings = {}, LastHit = -10, DamageAt = -10, LastRender = -10, LastContactScan = -10}
     local Red = Color3.fromRGB(255, 25, 65)
     local White = Color3.fromRGB(255, 237, 241)
     local RenderName = "NeoperroHitVisuals"
@@ -82,12 +82,33 @@ return function(Library: any, Window: any)
         end
         Record.Start = Start; Record.Finish = Finish; Record.At = os.clock(); Record.Active = true
     end
+    function V:Contact(Start, Finish, Tool)
+        if not Start or not Finish or (Finish - Start).Magnitude < 0.01 then return nil end
+        local Params = RaycastParams.new()
+        Params.FilterType = Enum.RaycastFilterType.Exclude
+        local Ignore = {}
+        if P.Character then table.insert(Ignore, P.Character) end
+        if W.CurrentCamera then table.insert(Ignore, W.CurrentCamera) end
+        if Tool then table.insert(Ignore, Tool) end
+        local Guns = Library.Features
+        local B = Guns and Guns.Weapons and Guns.Weapons[Tool]
+        if B and B.Manager and type(B.Manager.GetIgnoreList) == "function" then
+            local OK, Extra = pcall(B.Manager.GetIgnoreList, B.Manager)
+            if OK and type(Extra) == "table" then
+                for _, Item in ipairs(Extra) do if typeof(Item) == "Instance" then table.insert(Ignore, Item) end end
+            end
+        end
+        Params.FilterDescendantsInstances = Ignore
+        local Delta = Finish - Start
+        local Hit = W:Raycast(Start, Delta + Delta.Unit * 0.35, Params)
+        return Hit and self:Zombie(Hit.Instance) or nil
+    end
     function V:OnShot(Player, Tool, Muzzle, Rays)
-        if not self.Alive or Player ~= P then return end
-        if type(Rays) ~= "table" then return end
+        if not self.Alive or Player ~= P or type(Rays) ~= "table" then return end
         local Head = P.Character and P.Character:FindFirstChild("Head")
         local Origin = typeof(Muzzle) == "Instance" and Muzzle:IsA("BasePart") and Muzzle.Position or Head and Head.Position
-        local Count = 0
+        local Count, Contacts = 0, 0
+        local Scan = Flags.VisualHitChams and os.clock() - self.LastContactScan >= 1 / 30
         for _, Row in pairs(Rays) do
             if type(Row) == "table" then
                 Count = Count + 1; if Count > 16 then break end
@@ -95,9 +116,17 @@ return function(Library: any, Window: any)
                 local Start = self:Point(Row[4]) or Origin
                 if type(Row[4]) == "number" and type(Rays[Row[4]]) == "table" then Start = self:Point(Rays[Row[4]][1]) or Start end
                 self:AddTracer(Start, Finish)
-                self:AddCham(self:Zombie(Row[2]))
+                local Model = self:Zombie(Row[2])
+                -- Native visual rays usually omit zombie parts; reconstruct the
+                -- actual shot segment instead of treating a world-impact field as a target.
+                if not Model and Scan and Contacts < 4 then
+                    Contacts = Contacts + 1
+                    Model = self:Contact(Head and Head.Position or Start, Finish, Tool)
+                end
+                self:AddCham(Model)
             end
         end
+        if Scan then self.LastContactScan = os.clock() end
         self:Refresh()
     end
     function V:OnHit()
@@ -106,6 +135,7 @@ return function(Library: any, Window: any)
     end
     function V:OnDamage(Amount)
         if not self.Alive or not Finite(Amount) or Amount <= 0 then return end
+        self:OnHit()
         self.RecentDamage = os.clock() - self.DamageAt < 0.15 and (self.RecentDamage or 0) + Amount or Amount
         self.DamageAt = os.clock(); self:Refresh()
     end
@@ -116,13 +146,14 @@ return function(Library: any, Window: any)
             self.HitLines[I] = {Glow = DrawingObject("Line", {Color = Red, Thickness = 6, ZIndex = 7}),
                 Core = DrawingObject("Line", {Color = White, Thickness = 2, ZIndex = 8})}
         end
-        self.DamageText = DrawingObject("Text", {Color = White, Font = Drawing.Fonts.UI, Size = 20, Center = true, Outline = true, ZIndex = 8})
+        self.DamageText = DrawingObject("Text", {Color = White, Font = Drawing.Fonts.System, Size = 20, Center = true, Outline = true, ZIndex = 8})
     end
     function V:Render()
         if not self.Alive then return end
         local Camera = W.CurrentCamera
         local Now = os.clock()
         for _, T in ipairs(self.Tracers) do
+            if T.Active then
             local Alpha = 1 - (Now - (T.At or -10)) / Duration("VisualTracerTime", 0.25)
             local Visible = T.Active and Flags.VisualTracers and Camera and Alpha > 0
             if Visible then
@@ -137,6 +168,7 @@ return function(Library: any, Window: any)
             end
             T.Glow.Visible = Visible == true; T.Core.Visible = Visible == true
             if Alpha <= 0 or not Flags.VisualTracers then T.Active = false end
+            end
         end
         for Model, Record in pairs(self.Chams) do
             local Alpha = (Now - Record.At) / Duration("VisualHitTime", 0.3)
@@ -175,6 +207,11 @@ return function(Library: any, Window: any)
         if Need and not self.Rendering then
             self.Rendering = true
             Run:BindToRenderStep(RenderName, Enum.RenderPriority.Last.Value + 3, function()
+                local Now = os.clock()
+                if Now < (self.NextRender or 0) then return end
+                local Next = (self.NextRender or Now) + 1 / 144
+                self.NextRender = Next > Now and Next or Now + 1 / 144
+                self.LastRender = Now
                 local OK, Error = pcall(self.Render, self)
                 if not OK then
                     self:Destroy(); Window.SendNotification("Warning", "Visuals stopped: " .. tostring(Error), 5)

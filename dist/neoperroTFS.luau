@@ -622,18 +622,18 @@ do
         assert(typeof(Key) == "EnumItem" and Key.EnumType == Enum.KeyCode and Key ~= Enum.KeyCode.Unknown and Key ~= Enum.KeyCode.Escape, "Choose a keyboard key other than Escape")
         Library.MenuKey = Key
         Library.Flags.MenuKey = Key.Name
-        if Library.MenuKeyButton then Library.MenuKeyButton:SetText("show / hide UI: " .. Key.Name) end
+        if Library.MenuKeyButton then Library.MenuKeyButton:SetText("SHOW / HIDE UI: " .. string.upper(Key.Name)) end
     end
     function Library:BeginMenuKeyCapture()
         Library.CapturingMenuKey = true
-        if Library.MenuKeyButton then Library.MenuKeyButton:SetText("press a key (Esc cancels)") end
+        if Library.MenuKeyButton then Library.MenuKeyButton:SetText("PRESS A KEY (ESC CANCELS)") end
     end
     function Library.HandleMenuInput(Input)
         if Library.CapturingMenuKey then
             if Input.UserInputType ~= Enum.UserInputType.Keyboard then return true end
             Library.CapturingMenuKey = false
             if Input.KeyCode ~= Enum.KeyCode.Escape and Input.KeyCode ~= Enum.KeyCode.Unknown then Library:SetMenuKey(Input.KeyCode)
-            elseif Library.MenuKeyButton then Library.MenuKeyButton:SetText("show / hide UI: " .. Library.MenuKey.Name) end
+            elseif Library.MenuKeyButton then Library.MenuKeyButton:SetText("SHOW / HIDE UI: " .. Library.MenuKey.Name) end
             return true
         end
         if UserInput:GetFocusedTextBox() then return true end
@@ -1701,7 +1701,7 @@ do
                             Keybind.Callback(Keybind.State, Keybind.Key)
                             Library.Flags[Options.Flag] = true
                         end
-                        Keybind.Shorten = Keybind.Key == Enum.KeyCode.Unknown and "None" or Library.Keys.Shortened[Keybind.Key.Name] or Keybind.Key.Name
+                        Keybind.Shorten = Keybind.Key == Enum.KeyCode.Unknown and "NONE" or Library.Keys.Shortened[Keybind.Key.Name] or Keybind.Key.Name
                         Keybind.ShowRender = ("[%s] %s"):format(Keybind.Shorten, Options.Title)
                         local KeybindInline = Utility.AddDrawing("Square", {
                             Position = Vector2.new(SectionInline.Position.X + SectionInline.Size.X - 40 - 6, SectionInline.Position.Y + Keybind.Axis + 2),
@@ -1764,7 +1764,7 @@ do
                             ZIndex = 3
                         })
                         local KeybindHoldValue = Utility.AddDrawing("Text", {
-                            Text = "Hold",
+                            Text = "HOLD",
                             Position = Vector2.new(KeybindHoldInline.Position.X + (KeybindHoldInline.Size.X / 2), KeybindHoldInline.Position.Y),
                             Center = true,
                             Outline = false,
@@ -1800,7 +1800,7 @@ do
                             ZIndex = 3
                         })
                         local KeybindToggleValue = Utility.AddDrawing("Text", {
-                            Text = "Toggle",
+                            Text = "TOGGLE",
                             Position = Vector2.new(KeybindToggleInline.Position.X + (KeybindToggleInline.Size.X / 2), KeybindToggleInline.Position.Y),
                             Center = true,
                             Outline = false,
@@ -1837,7 +1837,7 @@ do
                             ZIndex = 3
                         })
                         local KeybindAlwaysValue = Utility.AddDrawing("Text", {
-                            Text = "Set key...",
+                            Text = "SET KEY...",
                             Position = Vector2.new(KeybindAlwaysInline.Position.X + (KeybindAlwaysInline.Size.X / 2), KeybindAlwaysInline.Position.Y),
                             Center = true,
                             Outline = false,
@@ -1856,7 +1856,7 @@ do
                             Filled = true, Color = Library.Theme.LightContrast, Visible = false, ZIndex = 3
                         })
                         local KeybindNoneValue = Utility.AddDrawing("Text", {
-                            Text = "None", Position = KeybindNoneInline.Position + Vector2.new(48, 2), Center = true,
+                            Text = "NONE", Position = KeybindNoneInline.Position + Vector2.new(48, 2), Center = true,
                             Color = Library.Theme.Text, Font = Library.Theme.Font, Size = Library.Theme.TextSize, Visible = false, ZIndex = 3
                         })
                         function Keybind:Drop(State)
@@ -2006,7 +2006,7 @@ do
                             assert(typeof(Key) == "EnumItem" and (Key.EnumType == Enum.KeyCode or Key.EnumType == Enum.UserInputType), "Invalid binding")
                             self.Key = Key
                             self.EnumType = Key.EnumType == Enum.KeyCode and "KeyCode" or "UserInputType"
-                            self.Shorten = Key == Enum.KeyCode.Unknown and "None" or Library.Keys.Shortened[Key.Name] or Key.Name
+                            self.Shorten = Key == Enum.KeyCode.Unknown and "NONE" or Library.Keys.Shortened[Key.Name] or Key.Name
                             self.Binding = false
                             KeybindValue.Text = self.Shorten
                             KeybindValue.Color = Key == Enum.KeyCode.Unknown and Library.Theme.TextInactive or Library.Theme.Text
@@ -3142,7 +3142,7 @@ do
                         Visible = true
                     })
                     local KeybindHoldValue = Utility.AddDrawing("Text", {
-                        Text = "Hold",
+                        Text = "HOLD",
                         Position = Vector2.new(KeybindHoldInline.Position.X + (KeybindHoldInline.Size.X / 2), KeybindHoldInline.Position.Y),
                         Center = true,
                         Outline = false,
@@ -3176,7 +3176,7 @@ do
                         Visible = true
                     })
                     local KeybindToggleValue = Utility.AddDrawing("Text", {
-                        Text = "Toggle",
+                        Text = "TOGGLE",
                         Position = Vector2.new(KeybindToggleInline.Position.X + (KeybindToggleInline.Size.X / 2), KeybindToggleInline.Position.Y),
                         Center = true,
                         Outline = false,
@@ -4139,24 +4139,37 @@ return function()
         return true, Clearance
     end
     function N:LocalDirection(Root, Zombies, Radius, Params, FloorY, Away)
+        local Nearest = self:Separation(Root.Position, Zombies)
+        local function Score(D)
+            if not D or D.Magnitude < 0.01 then return nil end
+            local Valid, Clearance = self:Segment(Root, D, 8, Params, FloorY)
+            if not Valid then return nil end
+            local Safe = self:Separation(Root.Position + D * math.min(7, Clearance - 0.8), Zombies)
+            if Safe < math.max(1, math.min(Nearest - 1.5, 6)) then return nil end
+            local Value = math.min(Safe, Radius + 20) * 3 + D:Dot(Away) * 5 + Clearance
+            if self.StuckDirection then Value = Value - math.max(0, D:Dot(self.StuckDirection)) * 18 end
+            return Value, Safe
+        end
+        local DirectScore, DirectSafety = Score(Away)
+        self.DirectClear = DirectScore ~= nil and DirectSafety >= Nearest + 1 and not self.StuckDirection
+        local OldScore = Score(self.LastDirection)
+        if self.DirectClear then
+            -- Keep a safe heading across small target motion, rather than zigzagging.
+            if OldScore and self.LastDirection:Dot(Away) > 0.8 and OldScore >= DirectScore - 3 then return self.LastDirection end
+            return Away
+        end
         local Best, BestScore = nil, -math.huge
         for I = 0, 15 do
             local Angle = I * math.pi / 8
             local D = Vector3.new(math.cos(Angle), 0, math.sin(Angle))
-            local Valid, Clearance = self:Segment(Root, D, 8, Params, FloorY)
-            if Valid then
-                local End = Root.Position + D * math.min(7, Clearance - 0.8)
-                local Safe = self:Separation(End, Zombies)
-                local Score = math.min(Safe, Radius + 20) * 3 + D:Dot(Away) * 5 + Clearance
-                if self.LastDirection then Score = Score + D:Dot(self.LastDirection) * 2 end
-                if self.StuckDirection then Score = Score - math.max(0, D:Dot(self.StuckDirection)) * 18 end
-                if Score > BestScore then Best = D; BestScore = Score end
-            end
+            local Value = Score(D)
+            if Value and Value > BestScore then Best = D; BestScore = Value end
         end
+        if OldScore and OldScore >= BestScore - 3 then return self.LastDirection end
         return Best
     end
     function N:Plan(Root, Zombies, Radius, Away, Params, FloorY)
-        if self.Planning or os.clock() < self.NextPlan then return end
+        if self.Route or self.Planning or os.clock() < self.NextPlan then return end
         self.Planning = true; self.NextPlan = os.clock() + 0.8
         local Token = {}; self.Token = Token
         local Start = Root.Position
@@ -4199,17 +4212,20 @@ return function()
                         if Separation < math.min(8, math.max(1, InitialDistance - 2)) then Safe = false end
                     end
                     local Score = Candidate.Score + math.min(MinDistance, Radius + 15) * 2 - Length * 0.1
-                    if Safe and Score > BestScore then Best = Route; BestScore = Score end
+                    if Safe and Score > BestScore then Best = Route; BestScore = Score; break end
                 end
             end
             if not self.Alive or self.Token ~= Token then return end
             self.Planning = false
-            if Best then self.Route = Best; self.Index = 2; self.RouteAt = os.clock(); self.JumpIndex = nil end
+            if Best and (Root.Position - Start).Magnitude < 10 then
+                self.Route = Best; self.Index = 2; self.RouteAt = os.clock(); self.JumpIndex = nil
+            end
         end)
     end
     function N:Reset()
         self.Token = nil; self.Planning = false; self.Route = nil; self.Active = false
         self.LastDirection = nil; self.Position = nil; self.NextPlan = 0
+        self.Index = nil; self.RouteAt = nil; self.StuckDirection = nil; self.StuckUntil = nil; self.DirectClear = nil
     end
     function N:Update(H, Root, Zombies, Radius)
         local Nearest, Away = self:Separation(Root.Position, Zombies)
@@ -4229,11 +4245,21 @@ return function()
             end
             self.Position = Root.Position; self.LastProgress = os.clock()
         end
-        self:Plan(Root, Zombies, Radius, Away, Params, Ground.Position.Y)
         local Direction
         if self.Route then
             local Point = self.Route[self.Index]
-            while Point and (Point.Position - Root.Position).Magnitude < 3 do
+            local function Reached()
+                if not Point then return false end
+                if (Point.Position - Root.Position).Magnitude < 3 then return true end
+                local Previous = self.Route[self.Index - 1]
+                if not Previous then return false end
+                local Segment = Flat(Point.Position - Previous.Position)
+                local Offset = Flat(Root.Position - Point.Position)
+                if Segment.Magnitude < 0.01 then return true end
+                local Forward = Segment.Unit
+                return Offset:Dot(Forward) >= 0 and (Offset - Forward * Offset:Dot(Forward)).Magnitude < 3
+            end
+            while Reached() do
                 if Point.Action == Enum.PathWaypointAction.Jump then H.Jump = true end
                 self.Index = self.Index + 1; Point = self.Route[self.Index]
             end
@@ -4246,7 +4272,11 @@ return function()
                 if not Valid then self.Route = nil; self.NextPlan = 0; Direction = nil end
             else self.Route = nil; self.NextPlan = 0 end
         end
-        if not Direction or Direction.Magnitude < 0.01 then Direction = self:LocalDirection(Root, Zombies, Radius, Params, Ground.Position.Y, Away) end
+        if not Direction or Direction.Magnitude < 0.01 then
+            Direction = self:LocalDirection(Root, Zombies, Radius, Params, Ground.Position.Y, Away)
+            -- Navmesh is a detour fallback, not a constantly replaced movement target.
+            if not self.DirectClear then self:Plan(Root, Zombies, Radius, Away, Params, Ground.Position.Y) end
+        end
         self.LastDirection = Direction
         self.Status = Direction and "Retreating via clear path" or "Blocked; searching for a route"
         return Direction
@@ -4475,6 +4505,17 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         self.MouseMode = nil
     end
     function A:Sprint(State)
+        if State then
+            local Values = P:FindFirstChild("PlayerValues")
+            local Current = Values and Values:FindFirstChild("Stamina")
+            local Maximum = Values and Values:FindFirstChild("StaminaMax")
+            if Current and Maximum and Maximum.Value > 0 then
+                local Ratio = Current.Value / Maximum.Value
+                if Ratio <= 0.05 then self.SprintRecovering = true end
+                if Ratio >= 0.25 or (self.Nearest or math.huge) < 8 and Ratio >= 0.08 then self.SprintRecovering = false end
+                if self.SprintRecovering then State = false end
+            end
+        end
         if not State and self.SprintOwned then self.SprintReleasePending = true end
         if self.SprintReleasePending and self:NativeFocused() then
             keyrelease(0xA0); self.SprintOwned = false; self.SprintReleasePending = false
@@ -4483,6 +4524,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             and not Input:IsKeyDown(Enum.KeyCode.LeftShift) and not Input:IsKeyDown(Enum.KeyCode.RightShift) then
             keypress(0xA0); self.SprintOwned = true
         end
+    end
+    function A:ManualMovement()
+        if not self:NativeFocused() then return false end
+        for _, Key in ipairs({Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
+            Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right}) do
+            if Input:IsKeyDown(Key) then self.ManualUntil = os.clock() + 0.25; return true end
+        end
+        return os.clock() < (self.ManualUntil or 0)
     end
     function A:StopMovement()
         if self.MovingHumanoid and self.MovingHumanoid.Parent then
@@ -4601,16 +4650,22 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         return Params
     end
     function A:Visible(Origin, Z, Tool)
-        local Params = self:Params(false)
-        local B = Tool and Guns.Weapons[Tool]
-        if B and B.Manager and type(B.Manager.GetIgnoreList) == "function" then
-            local OK, List = pcall(B.Manager.GetIgnoreList, B.Manager)
-            if OK and type(List) == "table" then
-                local Ignore = Params.FilterDescendantsInstances
-                for _, Item in ipairs(List) do if typeof(Item) == "Instance" then table.insert(Ignore, Item) end end
-                Params.FilterDescendantsInstances = Ignore
+        local Cache = self.VisibilityCache
+        if not Cache or Cache.Tool ~= Tool or Cache.Character ~= P.Character or Cache.Camera ~= W.CurrentCamera or os.clock() >= Cache.Expires then
+            local Params = self:Params(false)
+            local B = Tool and Guns.Weapons[Tool]
+            if B and B.Manager and type(B.Manager.GetIgnoreList) == "function" then
+                local OK, List = pcall(B.Manager.GetIgnoreList, B.Manager)
+                if OK and type(List) == "table" then
+                    local Ignore = Params.FilterDescendantsInstances
+                    for _, Item in ipairs(List) do if typeof(Item) == "Instance" then table.insert(Ignore, Item) end end
+                    Params.FilterDescendantsInstances = Ignore
+                end
             end
+            Cache = {Tool = Tool, Character = P.Character, Camera = W.CurrentCamera, Params = Params, Expires = os.clock() + 0.25}
+            self.VisibilityCache = Cache
         end
+        local Params = Cache.Params
         local Hit = W:Raycast(Origin, Z.Head.Position - Origin, Params)
         return Hit == nil or Hit.Instance:IsDescendantOf(Z.Model)
     end
@@ -4652,6 +4707,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:Equip(H, Preferred)
         if self.Equipping or os.clock() < (self.NextEquip or 0) then return end
+        self.NextEquip = os.clock() + 0.35
         local Bag = P:FindFirstChildOfClass("Backpack")
         local Best = Preferred
         if Bag and not Best then
@@ -4812,8 +4868,19 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
                 if (Root.Position - self.ProgressPosition).Magnitude < 1 then self.Route = nil; self:StopMovement(); return end
                 self.ProgressPosition = Root.Position; self.ProgressAt = os.clock()
             end
-            self.MovingHumanoid = H; self.Travelling = true; self.MoveDirection = nil
-            H:MoveTo(Point.Position)
+            local Direction = Unit(Flat(Point.Position - Root.Position))
+            local Params = self.Navigation:Params(Root)
+            if IgnoreDestinationModel then
+                local Ignore = Params.FilterDescendantsInstances
+                table.insert(Ignore, IgnoreDestinationModel); Params.FilterDescendantsInstances = Ignore
+            end
+            local Ground = self.Navigation:Ground(Root.Position, Params)
+            if not Ground or not self.Navigation:Segment(Root, Direction, math.min(5, (Point.Position - Root.Position).Magnitude), Params, Ground.Position.Y) then
+                self.Route = nil; self.PathFailedUntil = os.clock() + 1; self:StopMovement(); return
+            end
+            -- Share the per-frame movement owner with retreat; native MoveTo
+            -- alone can be cancelled by the normal player control update.
+            self.MovingHumanoid = H; self.Travelling = true; self.MoveDirection = Direction
             if Point.Action == Enum.PathWaypointAction.Jump then H.Jump = true end
             self:Sprint(Flags.FarmUseSprint == true)
         end
@@ -5006,7 +5073,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not Flags.FarmAutoReady then self.ReadyQuietSince = nil; return end
         if not H or not self:Focused() or not self.Shop:BetweenRounds() then self.ReadyQuietSince = nil; return end
         local Busy = self.Shop.Pending or self.Shop.RestockPending or self.Refill.Pending or self.Travelling or self.PathComputing
-            or self.UnconfirmedWeapon or self.RestockError
+            or self.UnconfirmedWeapon or self.RestockError or os.clock() < (self.ManualUntil or 0)
             or Flags.UpgradeEnabled and not self.UpgradeIdle
         if not Busy and Flags.FarmAutoRefill then Busy = self:AmmoTool() ~= nil end
         if Busy then self.ReadyQuietSince = nil; Status("ReadyStatus", "Finishing enabled shop / ammo tasks"); return end
@@ -5017,28 +5084,11 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:HideVisuals()
         for _, Line in ipairs(self.Lines) do Line.Visible = false end
-        if self.DistanceText then self.DistanceText.Visible = false end
     end
     function A:Visuals(Root)
         local Camera = W.CurrentCamera
         if not Root or not Camera then self:HideVisuals(); return end
         local Now = os.clock()
-        if self.DistanceText then self.DistanceText.Visible = Flags.FarmShowDistance == true end
-        if Flags.FarmShowDistance and Now >= (self.NextDistanceText or 0) then
-            self.NextDistanceText = Now + 0.1
-            if not self.DistanceText then
-                self.DistanceText = Drawing.new("Text"); self.DistanceText.Size = 14
-                self.DistanceText.Font = Drawing.Fonts.UI; self.DistanceText.Center = true
-                self.DistanceText.Outline = true; self.DistanceText.Color = Color3.fromRGB(200, 65, 75)
-            end
-            local Nearest = math.huge
-            for _, Z in ipairs(self.Zombies) do
-                if Z.Head.Parent and Z.Humanoid.Health > 0 then Nearest = math.min(Nearest, Flat(Root.Position - Z.Head.Position).Magnitude) end
-            end
-            self.DistanceText.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y * 0.7)
-            self.DistanceText.Text = Nearest < math.huge and string.format("Nearest zombie: %.0f studs", Nearest) or "No live zombies"
-            self.DistanceText.Visible = true
-        end
         if Flags.FarmShowCircle then
             local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
             if self.CircleRadius ~= Radius then
@@ -5074,24 +5124,32 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:Step()
         local Now = os.clock()
-        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled or Flags.FarmAutoRefill or Flags.FarmRestockBox or Flags.FarmAutoReady
+        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled or Flags.FarmAutoRefill or Flags.FarmRestockBox or Flags.FarmAutoReady
         if self.InventoryDirty or (Active or Library.WindowVisible) and Now - self.LastScan >= 1 then self:ScanInventory() end
         self:CameraState()
         local _, H, Root = self:Character()
-        if Active and self:Focused() then self:SnapshotZombies() end
-        local Restocking = self:Restock(H, Root)
-        local Travelling = not Restocking and self:Upgrade(H, Root)
+        if Active and self:Focused() and Now - (self.LastZombieScan or -10) >= 0.1 then self:SnapshotZombies() end
+        local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
+        local Distance = Root and self.Navigation:Separation(Root.Position, self.Zombies) or math.huge
+        local Danger = Flags.FarmKeepDistance and (Distance < Radius or self.Navigation.Active and Distance < Radius + 8)
+        local Manual = self:ManualMovement()
+        local Restocking, Travelling = false, false
+        -- Emergency retreat owns movement; shop travel cannot steer against it.
+        -- Already-submitted transactions still need their normal completion polling.
+        if not Danger and not Manual or self.Shop.Pending or self.Shop.RestockPending then
+            Restocking = self:Restock(H, Root)
+            Travelling = not Restocking and self:Upgrade(H, Root)
+        end
         if not H or not self:Focused() or self.Shop.Pending or self.Shop.RestockPending then
             self:ReleaseAim(); self:StopMovement(); self:CancelTravel(); self.Navigation:Reset()
             self.Refill:Poll()
             if Flags.FarmAutoShoot or Flags.FarmKeepDistance then Status("FarmStatus", not H and "Waiting for respawn" or "Hide UI and focus Roblox") end
+        elseif Manual then
+            self:StopMovement(); self:CancelTravel(); self.Navigation:Reset()
         elseif Travelling or Restocking then self:ReleaseAim(); self.Navigation:Reset()
         else
             if self.TravelPurpose == "shop" then self:CancelTravel() end
-            local Distance = self.Navigation:Separation(Root.Position, self.Zombies)
-            local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
-            local Retreat = Flags.FarmKeepDistance and (Distance < Radius or self.Navigation.Active and Distance < Radius + 8)
-            if Retreat then
+            if Danger then
                 self:CancelTravel(); self:Kite(H, Root, Radius)
                 self.Refill:Poll(); Status("AmmoStatus", Flags.FarmAutoRefill and "Retreating before resupply" or "Auto refill off")
             else
@@ -5126,6 +5184,10 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         local Tool = self:Equipped()
         if not Tool then self:ReleaseAim(); self:Equip(H); Status("FarmStatus", "Equipping an available gun"); return end
+        if Value(Tool, "Clip", 0) == 0 then
+            self:ReleaseAim(); self:Shoot(Tool); return
+        end
+        if self.Reloading then self:ReleaseAim(); return end
         local B = Guns.Weapons[Tool] or Guns:BindWeapon(Tool)
         local Range = B and B.Environment.Range or Value(Tool, "Range", 0)
         local Head = P.Character:FindFirstChild("Head")
@@ -5143,8 +5205,12 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not self.Alive then return end
         local _, H, Root = self:Character()
         if H and self:Focused() and self.MoveDirection then H:Move(self.MoveDirection, false) end
-        if Flags.FarmShowCircle or os.clock() - self.LastVisual >= 0.1 then
-            self.LastVisual = os.clock(); self:Visuals(Root)
+        local Now = os.clock()
+        if Now >= (self.NextVisual or 0) then
+            local Interval = Flags.FarmShowCircle and 1 / 144 or 0.1
+            local Next = (self.NextVisual or Now) + Interval
+            self.NextVisual = Next > Now and Next or Now + Interval
+            self.LastVisual = Now; self:Visuals(Root)
         end
     end
     function A:Fail(Error)
@@ -5155,7 +5221,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         self:RefreshRender()
     end
     function A:RefreshRender()
-        local Need = not self.Failed and (Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle)
+        local Need = not self.Failed and (Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowCircle or self.Travelling)
         if Need and not self.Rendering then
             self.Rendering = true
             Run:BindToRenderStep(RenderName .. "Aim", Enum.RenderPriority.Camera.Value + 1, function(DeltaTime)
@@ -5189,7 +5255,6 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         self.Shop:Destroy(); self.Navigation:Destroy(); self.Refill:Destroy(); Guns:SetSuspended(false)
         local Third = Flags.CameraThirdPerson; Flags.CameraThirdPerson = false; self:CameraState(); Flags.CameraThirdPerson = Third
         for _, Line in ipairs(self.Lines) do Line:Remove() end
-        if self.DistanceText then self.DistanceText:Remove() end
     end
     local function Own(Key, Action)
         local Item = Library.Items[Key]
@@ -5220,7 +5285,6 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end)
     Own("FarmRestockBox", function(V) if not V and not Flags.UpgradeEnabled then A:CancelTravel() end end)
     Own("FarmUseSprint", function(V) if not V then A:Sprint(false) end end)
-    Own("FarmShowDistance", function() A:HideVisuals() end)
     Own("FarmShowCircle", function() A:HideVisuals() end)
     Own("CameraThirdPerson", function() A:CameraState() end)
     Own("CameraDistance", function() A:CameraState() end)
@@ -5239,8 +5303,18 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     A:Watch("Character", P.Character)
     A:Watch("Backpack", P:FindFirstChildOfClass("Backpack"))
     A:Watch("Backgear", P:FindFirstChild("Backgear")); A:Watch("Upgrades", P:FindFirstChild("Upgrades"))
+    Connect(Input.InputBegan, function(Event)
+        local K = Event.KeyCode
+        if K == Enum.KeyCode.W or K == Enum.KeyCode.A or K == Enum.KeyCode.S or K == Enum.KeyCode.D
+            or K == Enum.KeyCode.Up or K == Enum.KeyCode.Down or K == Enum.KeyCode.Left or K == Enum.KeyCode.Right then
+            if A:NativeFocused() then
+                A.ManualUntil = os.clock() + 0.25
+                A:StopMovement(); A:CancelTravel(); A.Navigation:Reset()
+            end
+        end
+    end)
     Connect(Run.Heartbeat, function()
-        if not A.Alive or os.clock() - A.LastStep < 0.1 then return end
+        if not A.Alive or os.clock() - A.LastStep < 0.05 then return end
         A.LastStep = os.clock()
         if A.Failed then
             if A.Shop.Pending then pcall(A.Upgrade, A, nil, nil) end
@@ -5268,7 +5342,7 @@ return function(Library: any, Window: any)
     local W: any = workspace
     local Flags = Library.Flags
     local V: any = {Alive = true, Connections = {}, Callbacks = {}, Tracers = {}, Chams = {},
-        Drawings = {}, LastHit = -10, DamageAt = -10}
+        Drawings = {}, LastHit = -10, DamageAt = -10, LastRender = -10, LastContactScan = -10}
     local Red = Color3.fromRGB(255, 25, 65)
     local White = Color3.fromRGB(255, 237, 241)
     local RenderName = "NeoperroHitVisuals"
@@ -5343,12 +5417,33 @@ return function(Library: any, Window: any)
         end
         Record.Start = Start; Record.Finish = Finish; Record.At = os.clock(); Record.Active = true
     end
+    function V:Contact(Start, Finish, Tool)
+        if not Start or not Finish or (Finish - Start).Magnitude < 0.01 then return nil end
+        local Params = RaycastParams.new()
+        Params.FilterType = Enum.RaycastFilterType.Exclude
+        local Ignore = {}
+        if P.Character then table.insert(Ignore, P.Character) end
+        if W.CurrentCamera then table.insert(Ignore, W.CurrentCamera) end
+        if Tool then table.insert(Ignore, Tool) end
+        local Guns = Library.Features
+        local B = Guns and Guns.Weapons and Guns.Weapons[Tool]
+        if B and B.Manager and type(B.Manager.GetIgnoreList) == "function" then
+            local OK, Extra = pcall(B.Manager.GetIgnoreList, B.Manager)
+            if OK and type(Extra) == "table" then
+                for _, Item in ipairs(Extra) do if typeof(Item) == "Instance" then table.insert(Ignore, Item) end end
+            end
+        end
+        Params.FilterDescendantsInstances = Ignore
+        local Delta = Finish - Start
+        local Hit = W:Raycast(Start, Delta + Delta.Unit * 0.35, Params)
+        return Hit and self:Zombie(Hit.Instance) or nil
+    end
     function V:OnShot(Player, Tool, Muzzle, Rays)
-        if not self.Alive or Player ~= P then return end
-        if type(Rays) ~= "table" then return end
+        if not self.Alive or Player ~= P or type(Rays) ~= "table" then return end
         local Head = P.Character and P.Character:FindFirstChild("Head")
         local Origin = typeof(Muzzle) == "Instance" and Muzzle:IsA("BasePart") and Muzzle.Position or Head and Head.Position
-        local Count = 0
+        local Count, Contacts = 0, 0
+        local Scan = Flags.VisualHitChams and os.clock() - self.LastContactScan >= 1 / 30
         for _, Row in pairs(Rays) do
             if type(Row) == "table" then
                 Count = Count + 1; if Count > 16 then break end
@@ -5356,9 +5451,17 @@ return function(Library: any, Window: any)
                 local Start = self:Point(Row[4]) or Origin
                 if type(Row[4]) == "number" and type(Rays[Row[4]]) == "table" then Start = self:Point(Rays[Row[4]][1]) or Start end
                 self:AddTracer(Start, Finish)
-                self:AddCham(self:Zombie(Row[2]))
+                local Model = self:Zombie(Row[2])
+                -- Native visual rays usually omit zombie parts; reconstruct the
+                -- actual shot segment instead of treating a world-impact field as a target.
+                if not Model and Scan and Contacts < 4 then
+                    Contacts = Contacts + 1
+                    Model = self:Contact(Head and Head.Position or Start, Finish, Tool)
+                end
+                self:AddCham(Model)
             end
         end
+        if Scan then self.LastContactScan = os.clock() end
         self:Refresh()
     end
     function V:OnHit()
@@ -5367,6 +5470,7 @@ return function(Library: any, Window: any)
     end
     function V:OnDamage(Amount)
         if not self.Alive or not Finite(Amount) or Amount <= 0 then return end
+        self:OnHit()
         self.RecentDamage = os.clock() - self.DamageAt < 0.15 and (self.RecentDamage or 0) + Amount or Amount
         self.DamageAt = os.clock(); self:Refresh()
     end
@@ -5377,13 +5481,14 @@ return function(Library: any, Window: any)
             self.HitLines[I] = {Glow = DrawingObject("Line", {Color = Red, Thickness = 6, ZIndex = 7}),
                 Core = DrawingObject("Line", {Color = White, Thickness = 2, ZIndex = 8})}
         end
-        self.DamageText = DrawingObject("Text", {Color = White, Font = Drawing.Fonts.UI, Size = 20, Center = true, Outline = true, ZIndex = 8})
+        self.DamageText = DrawingObject("Text", {Color = White, Font = Drawing.Fonts.System, Size = 20, Center = true, Outline = true, ZIndex = 8})
     end
     function V:Render()
         if not self.Alive then return end
         local Camera = W.CurrentCamera
         local Now = os.clock()
         for _, T in ipairs(self.Tracers) do
+            if T.Active then
             local Alpha = 1 - (Now - (T.At or -10)) / Duration("VisualTracerTime", 0.25)
             local Visible = T.Active and Flags.VisualTracers and Camera and Alpha > 0
             if Visible then
@@ -5398,6 +5503,7 @@ return function(Library: any, Window: any)
             end
             T.Glow.Visible = Visible == true; T.Core.Visible = Visible == true
             if Alpha <= 0 or not Flags.VisualTracers then T.Active = false end
+            end
         end
         for Model, Record in pairs(self.Chams) do
             local Alpha = (Now - Record.At) / Duration("VisualHitTime", 0.3)
@@ -5436,6 +5542,11 @@ return function(Library: any, Window: any)
         if Need and not self.Rendering then
             self.Rendering = true
             Run:BindToRenderStep(RenderName, Enum.RenderPriority.Last.Value + 3, function()
+                local Now = os.clock()
+                if Now < (self.NextRender or 0) then return end
+                local Next = (self.NextRender or Now) + 1 / 144
+                self.NextRender = Next > Now and Next or Now + 1 / 144
+                self.LastRender = Now
                 local OK, Error = pcall(self.Render, self)
                 if not OK then
                     self:Destroy(); Window.SendNotification("Warning", "Visuals stopped: " .. tostring(Error), 5)
@@ -5480,102 +5591,83 @@ end)()
 -- Main tab. Features owns gameplay state, cleanup and native shop integration.
 local LoadTime = tick()
 
-Library.CreateLoader("neoperro", Vector2.new(300, 300))
-local Window = Library.Window("neoperro | the final stand 2", Vector2.new(500, 620))
-local Main = Window:Tab("main")
+Library.CreateLoader("NEOPERRO", Vector2.new(300, 300))
+local Window = Library.Window("NEOPERRO | THE FINAL STAND 2", Vector2.new(500, 620))
+local Main = Window:Tab("MAIN")
 
 local GunMods = Main:Section("GUN MODS", "Left")
-GunMods:Toggle({Title = "rapid fire", Flag = "GunRapidFire"})
-GunMods:Slider({Title = "fire rate (shots/s)", Flag = "GunFireRate", Symbol = "", Default = 60, Min = 1, Max = 120, Decimals = 1})
-GunMods:Toggle({Title = "no spread", Flag = "GunNoSpread"})
-GunMods:Toggle({Title = "no recoil", Flag = "GunNoRecoil"})
+GunMods:Toggle({Title = "RAPID FIRE", Flag = "GunRapidFire"})
+GunMods:Slider({Title = "FIRE RATE (SHOTS/S)", Flag = "GunFireRate", Symbol = "", Default = 60, Min = 1, Max = 120, Decimals = 1})
+GunMods:Toggle({Title = "NO SPREAD", Flag = "GunNoSpread"})
+GunMods:Toggle({Title = "NO RECOIL", Flag = "GunNoRecoil"})
 
 local Farm = Main:Section("AUTOFARM", "Left")
-Farm:Toggle({Title = "auto shoot (head)", Flag = "FarmAutoShoot"})
-Farm:Toggle({Title = "auto retreat", Flag = "FarmKeepDistance"})
-Farm:Slider({Title = "safe distance (studs)", Flag = "FarmDistance", Symbol = "", Default = 24, Min = 5, Max = 100, Decimals = 1})
-Farm:Toggle({Title = "show distance", Flag = "FarmShowDistance"})
-Farm:Toggle({Title = "show distance circle", Flag = "FarmShowCircle"})
-Farm:Toggle({Title = "sprint when retreating", Flag = "FarmUseSprint", State = true})
-Farm:Toggle({Title = "auto refill ammo", Flag = "FarmAutoRefill"})
-Farm:Slider({Title = "refill below (%)", Flag = "FarmRefillThreshold", Symbol = "%", Default = 30, Min = 5, Max = 80, Decimals = 1})
-Farm:Toggle({Title = "top up between waves", Flag = "FarmTopUp", State = true})
-Farm:Toggle({Title = "auto restock ammo box", Flag = "FarmRestockBox"})
-Farm:Slider({Title = "restock below (%)", Flag = "FarmRestockThreshold", Symbol = "%", Default = 20, Min = 5, Max = 50, Decimals = 1})
-Library.FarmStatus = Farm:Label("Head lock uses native weapon range")
-Library.MoveStatus = Farm:Label("Retreat respects walls and ground")
-Library.AmmoStatus = Farm:Label("Auto refill uses nearby stocked boxes")
-Library.RestockStatus = Farm:Label("Restock uses native shop cash")
+Farm:Toggle({Title = "AUTO SHOOT", Flag = "FarmAutoShoot"})
+Farm:Toggle({Title = "AUTO RETREAT", Flag = "FarmKeepDistance"})
+Farm:Slider({Title = "SAFE DISTANCE (STUDS)", Flag = "FarmDistance", Symbol = "", Default = 24, Min = 5, Max = 100, Decimals = 1})
+Farm:Toggle({Title = "SHOW DISTANCE CIRCLE", Flag = "FarmShowCircle"})
+Farm:Toggle({Title = "AUTO SPRINT", Flag = "FarmUseSprint", State = true})
+Farm:Toggle({Title = "AUTO REFILL AMMO", Flag = "FarmAutoRefill"})
+Farm:Slider({Title = "REFILL BELOW (%)", Flag = "FarmRefillThreshold", Symbol = "%", Default = 30, Min = 5, Max = 80, Decimals = 1})
+Farm:Toggle({Title = "TOP UP BETWEEN WAVES", Flag = "FarmTopUp", State = true})
+Farm:Toggle({Title = "RESTOCK AMMO BOX", Flag = "FarmRestockBox"})
+Farm:Slider({Title = "RESTOCK BELOW (%)", Flag = "FarmRestockThreshold", Symbol = "%", Default = 20, Min = 5, Max = 50, Decimals = 1})
 
 local Upgrade = Main:Section("AUTO UPGRADE", "Right")
-Upgrade:Toggle({Title = "enabled", Flag = "UpgradeEnabled"})
-local Priority, UpgradeMode, UpgradeHint
+Upgrade:Toggle({Title = "AUTO UPGRADE", Flag = "UpgradeEnabled"})
+local Priority, UpgradeMode
 local function RefreshUpgradeControls(Weapon)
     if Priority then Priority:SetVisible(Weapon ~= "Select weapon") end
     if UpgradeMode then UpgradeMode:SetVisible(Weapon ~= "Select weapon") end
-    if UpgradeHint then
-        UpgradeHint:Set(Weapon == "Select weapon" and "Select a weapon to set priorities." or
-            Library.Flags.UpgradeMode == "All upgrades" and "Priority first, then max the weapon." or
-            "Stop when selected upgrade is maxed.")
-    end
+
 end
-Upgrade:Dropdown({Title = "weapon", Flag = "UpgradeWeapon", List = {"Select weapon"}, Default = "Select weapon", Callback = RefreshUpgradeControls})
-Priority = Upgrade:Dropdown({Title = "prioritize upgrade", Flag = "UpgradePriority", List = {"Select upgrade"}, Default = "Select upgrade"})
-UpgradeMode = Upgrade:Dropdown({Title = "upgrade mode", Flag = "UpgradeMode", List = {"Selected upgrade only", "All upgrades"}, Default = "Selected upgrade only"})
-Upgrade:Toggle({Title = "go to shop if needed", Flag = "UpgradeShopFallback", State = true})
-Upgrade:Toggle({Title = "notify when complete", Flag = "UpgradeNotify", State = true})
-UpgradeHint = Upgrade:Label("Select a weapon to set priorities.")
-Library.UpgradeStatus = Upgrade:Label("Scanning owned weapons...")
-UpgradeMode.Callback = function(Mode)
-    UpgradeHint:Set(Library.Flags.UpgradeWeapon == "Select weapon" and "Select a weapon to set priorities." or
-        Mode == "All upgrades" and "Priority first, then max the weapon." or "Stop when selected upgrade is maxed.")
-end
+Upgrade:Dropdown({Title = "WEAPON", Flag = "UpgradeWeapon", List = {"Select weapon"}, Default = "Select weapon", Callback = RefreshUpgradeControls})
+Priority = Upgrade:Dropdown({Title = "PRIORITIZE UPGRADE", Flag = "UpgradePriority", List = {"Select upgrade"}, Default = "Select upgrade"})
+UpgradeMode = Upgrade:Dropdown({Title = "UPGRADE MODE", Flag = "UpgradeMode", List = {"Selected upgrade only", "All upgrades"}, Default = "Selected upgrade only"})
+Upgrade:Toggle({Title = "GO TO SHOP IF NEEDED", Flag = "UpgradeShopFallback", State = true})
+Upgrade:Toggle({Title = "NOTIFY WHEN COMPLETE", Flag = "UpgradeNotify", State = true})
 RefreshUpgradeControls(Library.Flags.UpgradeWeapon)
 
 local Camera = Main:Section("THIRD PERSON", "Right")
-Camera:Toggle({Title = "enabled", Flag = "CameraThirdPerson"})
-Camera:Slider({Title = "camera distance", Flag = "CameraDistance", Symbol = "", Default = 10, Min = 4, Max = 24, Decimals = 1})
+Camera:Toggle({Title = "THIRD PERSON", Flag = "CameraThirdPerson"})
+Camera:Slider({Title = "CAMERA DISTANCE", Flag = "CameraDistance", Symbol = "", Default = 10, Min = 4, Max = 24, Decimals = 1})
 
 local Control = Main:Section("CONTROL", "Right")
-Control:Button({Title = "start farming", Callback = function() if Library.Automation then Library.Automation:StartFarm() end end})
-Control:Button({Title = "stop automation", Callback = function() if Library.Automation then Library.Automation:StopAutomation() end end})
-Control:Toggle({Title = "run while unfocused", Flag = "FarmBackground"})
-Control:Toggle({Title = "auto start round", Flag = "FarmAutoReady"})
-Library.RunStatus = Control:Label("READY | automation off")
-Library.ReadyStatus = Control:Label("Auto start waits for enabled tasks")
+Control:Button({Title = "START FARMING", Callback = function() if Library.Automation then Library.Automation:StartFarm() end end})
+Control:Button({Title = "STOP AUTOMATION", Callback = function() if Library.Automation then Library.Automation:StopAutomation() end end})
+Control:Toggle({Title = "RUN WHILE UNFOCUSED", Flag = "FarmBackground"})
+Control:Toggle({Title = "AUTO START ROUND", Flag = "FarmAutoReady"})
 
-local Visuals = Window:Tab("visuals")
+local Visuals = Window:Tab("VISUALS")
 local Impact = Visuals:Section("SHOT EFFECTS", "Left")
-Impact:Toggle({Title = "bullet tracers", Flag = "VisualTracers", State = true})
-Impact:Slider({Title = "tracer lifetime", Flag = "VisualTracerTime", Symbol = "s", Default = 0.25, Min = 0.1, Max = 0.8, Decimals = 0.01})
-Impact:Toggle({Title = "hit chams", Flag = "VisualHitChams", State = true})
-Impact:Toggle({Title = "hit indicator", Flag = "VisualHitIndicator", State = true})
-Impact:Slider({Title = "hit flash duration", Flag = "VisualHitTime", Symbol = "s", Default = 0.3, Min = 0.1, Max = 0.8, Decimals = 0.01})
-Impact:Label("Tracers and chams follow shot contact")
-Impact:Label("Hit marker follows server feedback")
+Impact:Toggle({Title = "BULLET TRACERS", Flag = "VisualTracers", State = true})
+Impact:Slider({Title = "TRACER LIFETIME", Flag = "VisualTracerTime", Symbol = "s", Default = 0.25, Min = 0.1, Max = 0.8, Decimals = 0.01})
+Impact:Toggle({Title = "HIT CHAMS", Flag = "VisualHitChams", State = true})
+Impact:Toggle({Title = "HIT INDICATOR", Flag = "VisualHitIndicator", State = true})
+Impact:Slider({Title = "HIT FLASH DURATION", Flag = "VisualHitTime", Symbol = "s", Default = 0.3, Min = 0.1, Max = 0.8, Decimals = 0.01})
 -- Keep the existing interface controls and profiles available.
-local Settings = Window:Tab("settings")
-local Menu = Settings:Section("interface", "Left")
-Library.MenuKeyButton = Menu:Button({Title = "show / hide UI: RightShift", Callback = function()
+local Settings = Window:Tab("SETTINGS")
+local Menu = Settings:Section("INTERFACE", "Left")
+Library.MenuKeyButton = Menu:Button({Title = "SHOW / HIDE UI: RIGHTSHIFT", Callback = function()
     Library:BeginMenuKeyCapture()
 end})
-Menu:Button({Title = "reset UI bind to RightShift", Callback = function()
+Menu:Button({Title = "RESET UI BIND TO RIGHTSHIFT", Callback = function()
     Library.CapturingMenuKey = false
     Library:SetMenuKey(Enum.KeyCode.RightShift)
 end})
-Menu:Toggle({Title = "show keybind list", Flag = "ShowBinds", State = false, Callback = function(Value) Library:SetBindListVisible(Value) end})
-Menu:Button({Title = "hide UI (use your bind to reopen)", Callback = function() Library:ChangeVisible(false) end})
+Menu:Toggle({Title = "SHOW KEYBIND LIST", Flag = "ShowBinds", State = false, Callback = function(Value) Library:SetBindListVisible(Value) end})
+Menu:Button({Title = "HIDE UI", Callback = function() Library:ChangeVisible(false) end})
 
-local Profile = Settings:Section("profiles", "Right")
-Library.SaveButton = Profile:Button({Title = "save profile", Callback = function()
+local Profile = Settings:Section("PROFILES", "Right")
+Library.SaveButton = Profile:Button({Title = "SAVE PROFILE", Callback = function()
     local OK, Error = pcall(Library.Utility.SaveConfig, "default")
     Window.SendNotification(OK and "Normal" or "Warning", OK and "Profile saved" or tostring(Error), 3)
 end})
-Library.LoadButton = Profile:Button({Title = "load profile", Callback = function()
+Library.LoadButton = Profile:Button({Title = "LOAD PROFILE", Callback = function()
     local OK, Error = pcall(Library.Utility.LoadConfig, "default")
     Window.SendNotification(OK and "Normal" or "Warning", OK and "Profile loaded" or tostring(Error), 3)
 end})
-Profile:Button({Title = "unload UI", Callback = Library.SelfDestruct})
+Profile:Button({Title = "UNLOAD UI", Callback = Library.SelfDestruct})
 
 Window:SwitchTab(Main)
 Library.WindowInstance = Window
