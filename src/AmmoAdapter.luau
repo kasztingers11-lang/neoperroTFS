@@ -63,7 +63,15 @@ return function()
         if Minutes >= 360 and Minutes < 1080 then Time = Time / 5 end
         return Time / math.max(0.1, Context.Manager:GetMulti("InteractionSpeed", P, {IgnoreTool = true}))
     end
-    function A:Begin(Tool, Box, Root)
+    function A:RestoreTestTimer(Record)
+        if Record and Record.TestTime then
+            pcall(function()
+                if Record.TestTime.Parent and Record.TestTime.Value == 0.01 then Record.TestTime.Value = Record.OriginalTime end
+            end)
+            Record.TestTime = nil
+        end
+    end
+    function A:Begin(Tool, Box, Root, FastTest)
         if not self.Alive or self.Pending or os.clock() < self.NextTry then return false, "Refill cooling down" end
         if not self:Eligible(Box) then return false, "Ammo box empty or unavailable" end
         if (Root.Position - Box.PrimaryPart.Position).Magnitude >= 8 then return false, "Move within 8 studs of box" end
@@ -72,11 +80,18 @@ return function()
         local Context = self:Context()
         if not Context then return false, "Native refill version unsupported" end
         if debug.getupvalue(Context.Function, 3) ~= false then return false, "Native interaction already busy" end
-        local Record = {Tool = Tool, Box = Box, Before = Tool.CurrentValues.Ammo.Value, Started = os.clock(), Done = false}
+        local Record = {Tool = Tool, Box = Box, Before = Tool.CurrentValues.Ammo.Value, Started = os.clock(), Done = false, FastTest = FastTest == true}
         self.Pending = Record; self.NextTry = os.clock() + 3
         task.spawn(function()
-            if not self.Alive then Record.Done = true; Record.Error = "Cancelled"; return end
-            local OK, Error = pcall(Context.Function)
+            if not self.Alive or self.CanStart and not self.CanStart() then Record.Done = true; Record.Error = "Cancelled"; return end
+            local OK, Error = pcall(function()
+                if Record.FastTest then
+                    Record.TestTime = Box.Time; Record.OriginalTime = Box.Time.Value
+                    Box.Time.Value = 0.01
+                end
+                Context.Function()
+            end)
+            self:RestoreTestTimer(Record)
             if not OK and debug.getupvalue(Context.Function, 3) == true then
                 -- Only recover the interaction started by this call, after its thread has returned.
                 debug.setupvalue(Context.Function, 3, false)
@@ -86,6 +101,7 @@ return function()
             end
             Record.OK = OK; Record.Error = not OK and tostring(Error) or nil
             Record.After = Tool.Parent and Tool.CurrentValues.Ammo.Value or Record.Before
+            Record.Seconds = os.clock() - Record.Started
             Record.Done = true
         end)
         return true, "Refilling reserve at native speed"
@@ -98,6 +114,6 @@ return function()
         if R.OK and R.After > R.Before then return "refilled", R end
         return "failed", R
     end
-    function A:Destroy() self.Alive = false end
+    function A:Destroy() self.Alive = false; self:RestoreTestTimer(self.Pending) end
     return A
 end

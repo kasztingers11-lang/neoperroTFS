@@ -48,7 +48,7 @@ return function()
         return self.Context
     end
     function A:TryPurchase(Weapon, OrderedLevels)
-        if not self.Alive or self.Pending then return nil, "Waiting for confirmation" end
+        if not self.Alive or self.Pending or self.RestockPending then return nil, "Waiting for confirmation" end
         if not self:BetweenRounds() then return nil, "Waiting for round end" end
         if not self:InShop() then return nil, "Enter the shop to upgrade" end
         if not self.Confirmation then return nil, "Native confirmation event unavailable" end
@@ -108,6 +108,71 @@ return function()
         end
         return Pending, Pending and "Waiting for confirmation" or Reason
     end
+    function A:AmmoBox()
+        local Map = W:FindFirstChild("Map")
+        local Upgrades = Map and Map:FindFirstChild("Upgrades")
+        return Upgrades and Upgrades:FindFirstChild("AmmoBox")
+    end
+    function A:RestockContext()
+        local Scripts = P:FindFirstChild("PlayerScripts")
+        local Manager = Scripts and Scripts:FindFirstChild("GuiManager")
+        local Main = Manager and Manager:FindFirstChild("MainGui")
+        local Shop = Main and Main:FindFirstChild("ShopGui")
+        local Module = Shop and Shop:FindFirstChild("ShopPurchase")
+        if not Module then return nil end
+        local Purchase = Load(Module)
+        local Fn = type(Purchase) == "table" and Purchase.RepairStructure
+        if type(Fn) ~= "function" or debug.getinfo(Fn).nups ~= 5 then return nil end
+        local Utility = debug.getupvalue(Fn, 3)
+        local Remote = debug.getupvalue(Fn, 4)
+        if debug.getupvalue(Fn, 1) ~= P or type(Utility) ~= "table" or type(Utility.GetStructureRepairInfo) ~= "function"
+            or typeof(Remote) ~= "Instance" or Remote.Name ~= "SellRepair" then return nil end
+        return {Purchase = Purchase, Utility = Utility}
+    end
+    function A:TryRestock(Threshold)
+        if not self.Alive or self.Pending or self.RestockPending then return nil, "Another purchase is pending" end
+        if not self:BetweenRounds() then return nil, "Restock waits for round end" end
+        local Minutes = game:GetService("Lighting"):GetMinutesAfterMidnight()
+        if Minutes < 360 or Minutes >= 1080 then return nil, "Restock is daytime only" end
+        if not self:InShop() then return nil, "Enter the shop to restock" end
+        local Frame = self:GetContext()
+        if not Frame or Frame.Frame.Visible then return nil, "Close the native shop menu" end
+        local Box = self:AmmoBox()
+        if not Box or not Box:FindFirstChild("Ammo") or not Box:FindFirstChild("MaxAmmo")
+            or Box.MaxAmmo.Value <= 0 then return nil, "Ammo box unavailable" end
+        if Box.Ammo.Value > Box.MaxAmmo.Value * math.clamp(Threshold, 5, 50) / 100 then return nil, "Ammo box stock sufficient" end
+        local Values = RS:FindFirstChild("Values")
+        local Wave = Values and Values:FindFirstChild("LocalWave")
+        if not Wave then return nil, "Round identity unavailable" end
+        if self.RestockAttemptedWave == Wave.Value then return nil, "Restock already attempted this round" end
+        local First = P:FindFirstChild("FirstWave")
+        if First and First.Value then return nil, "Survive one night before restocking" end
+        local Money = P:FindFirstChild("ReplicatedMoney")
+        local Context = self:RestockContext()
+        if not Money or not Context then return nil, "Native restock version unsupported" end
+        local Amount, Price = Context.Utility:GetStructureRepairInfo("AmmoBox", Money.Value)
+        local function Finite(N) return type(N) == "number" and N == N and math.abs(N) < math.huge end
+        if not Finite(Amount) or not Finite(Price) or Amount <= 0 or Price <= 0 or Price > Money.Value then
+            return nil, "Waiting for restock cash"
+        end
+        local Record = {Started = os.clock(), Box = Box, BeforeStock = Box.Ammo.Value,
+            BeforeCash = Money.Value, Price = Price, Amount = Amount}
+        self.RestockPending = Record
+        -- Native restock changes stock/cash optimistically and has no dedicated acknowledgement.
+        -- One attempt per round prevents a rejected local update causing repeated spending.
+        self.RestockAttemptedWave = Wave.Value
+        local OK, Error = pcall(Context.Purchase.RepairStructure, Context.Purchase, "AmmoBox")
+        Record.Error = not OK and tostring(Error) or nil
+        return Record, "Native restock submitted"
+    end
+    function A:PollRestock()
+        local Record = self.RestockPending
+        if not Record then return "idle" end
+        if os.clock() - Record.Started < 1 then return "waiting", Record end
+        self.RestockPending = nil
+        Record.AfterStock = Record.Box.Parent and Record.Box.Ammo.Value or Record.BeforeStock
+        return Record.Error and "unconfirmed" or "submitted", Record
+    end
     function A:Poll()
         local Pending = self.Pending
         if not Pending then return "idle" end
@@ -127,6 +192,7 @@ return function()
         self.Alive = false
         if self.Confirmation then self.Confirmation:Disconnect() end
         self.Pending = nil
+        self.RestockPending = nil
     end
     local Remotes = RS:FindFirstChild("RemoteEvents")
     local Result = Remotes and Remotes:FindFirstChild("RefreshItemStats")

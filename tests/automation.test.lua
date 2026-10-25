@@ -155,7 +155,7 @@ local function setup(native)
     local flags={UpgradeWeapon="Select weapon",UpgradePriority="Select upgrade",UpgradeMode="Selected upgrade only",
         FarmDistance=24,FarmAvoidWalls=true,FarmUseSprint=true,CameraDistance=10,UpgradeNotify=true,UpgradeShopFallback=true}
     local lib={Flags=flags,Items={},WindowVisible=false}
-    local keys={"UpgradeWeapon","UpgradePriority","UpgradeMode","UpgradeEnabled","UpgradeShopFallback","FarmAutoShoot",
+    local keys={"UpgradeWeapon","UpgradePriority","UpgradeMode","UpgradeEnabled","UpgradeShopFallback","FarmAutoShoot","FarmRestockBox",
         "FarmKeepDistance","FarmUseSprint","FarmShowDistance","FarmShowCircle","FarmAutoRefill","CameraThirdPerson","CameraDistance"}
     for _,key in ipairs(keys) do
         local item={Callback=function() end,List={}}
@@ -207,6 +207,7 @@ local function setup(native)
         if self.Outcome then local pending=self.Pending; self.Pending=nil; local state=self.Outcome; self.Outcome=nil; return state,pending end
         return "waiting",self.Pending
     end
+    function shop:PollRestock() return "idle" end
     function shop:Destroy() self.Alive=false end
     local refill={}
     function refill:Poll() return "idle" end
@@ -243,6 +244,61 @@ test("upgrade metadata is excluded from the category list",function()
     c.A:ScanInventory(); c.Lib.Items.UpgradeWeapon:Set("Pistol")
     eq(#c.Lib.Items.UpgradePriority.List,3)
 end)
+
+test("selecting an owned gun resolves the placeholder to a real upgrade",function()
+    local c=setup(); c.Weapon("Pistol"); c.A:ScanInventory()
+    c.Lib.Items.UpgradeWeapon:Set("Pistol")
+    eq(c.Lib.Flags.UpgradePriority,"AP Rounds"); eq(#c.A:OrderedLevels(),1)
+    c.Lib.Items.UpgradePriority:Set("Select upgrade"); c.A:ScanPriorities()
+    eq(c.Lib.Flags.UpgradePriority,"AP Rounds")
+    instance("Damage","IntConstrainedValue",c.Levels.Pistol,{Value=0,MaxValue=3})
+    c.Lib.Items.UpgradePriority:Set("Select upgrade"); c.A:ScanPriorities()
+    eq(c.Lib.Flags.UpgradePriority,"Damage")
+end)
+
+test("nearest clear target acquisition avoids casting at every zombie",function()
+    local c=setup(); local near=c.Zombie("Nearest",3,0)
+    for i=1,100 do c.Zombie("Far"..i,10+i,0) end
+    local casts=0; c.World.Ray=function() casts=casts+1; return nil end
+    c.A:SnapshotZombies(); eq(c.A:SelectTarget(c.Root.Position,500).Model,near.Model); eq(casts,1)
+end)
+
+test("blocked target searches stay throttled at 240 render frames per second",function()
+    local c=setup(); c.Weapon("Pistol",c.P.Character); c.Zombie("Blocked",8,0)
+    local wall=instance("Wall","Part",c.World); local casts=0
+    c.World.Ray=function() casts=casts+1; return {Instance=wall} end
+    c.Lib.Flags.FarmAutoShoot=true; c.A:SnapshotZombies()
+    for i=0,239 do Now=100+i/240; c.A:PreRender(1/240) end
+    assert(casts>=20 and casts<=31,tostring(casts)); eq(Presses,0)
+end)
+
+test("single-shot cadence is comparable across 60, 144 and 240 FPS without hitch bursts",function()
+    for _,fps in ipairs({60,144,240}) do
+        local c=setup(); local t=c.Weapon("Pistol",c.P.Character); c.Zombie("Target",8,0)
+        c.Guns:BindWeapon(t).Environment.LAS=540
+        c.Lib.Flags.FarmAutoShoot=true; c.A:SnapshotZombies()
+        for i=0,fps*2-1 do Now=100+i/fps; c.A:PreRender(1/fps); c.A:Render() end
+        assert(Presses>=17 and Presses<=19,tostring(fps)..": "..tostring(Presses))
+        Now=110; c.A:PreRender(1/fps); c.A:PreRender(1/fps)
+        local before=Presses; c.A:PreRender(1/fps); eq(Presses,before)
+    end
+    local c=setup(); local t=c.Weapon("Pistol",c.P.Character); c.Zombie("Target",8,0)
+    c.Guns:BindWeapon(t).Environment.LAS=7200
+    c.Lib.Flags.FarmAutoShoot=true; c.A:SnapshotZombies()
+    for i=0,239 do Now=100+i/240; c.A:PreRender(1/240); c.A:Render() end
+    assert(Presses>70 and Presses<=120,tostring(Presses))
+end)
+
+test("distance circle follows every render and reuses geometry and drawings",function()
+    local c=setup(); c.Lib.Flags.FarmShowCircle=true
+    local casts=0
+    c.World.CurrentCamera.WorldToViewportPoint=function(_,p) casts=casts+1; return Vector3.new(p.X,p.Y,1),true end
+    c.A:Render(); local offsets=c.A.CircleOffsets; local points=c.A.CirclePoints; local line=c.A.Lines[1]
+    Now=Now+1/240; c.Root.Position=Vector3.new(2,3,0); c.A:Render()
+    eq(casts,96); eq(c.A.CircleOffsets,offsets); eq(c.A.CirclePoints,points); eq(c.A.Lines[1],line)
+    c.Lib.Flags.FarmDistance=50; c.A:Render(); assert(c.A.CircleOffsets~=offsets)
+    c.Lib.Flags.FarmShowCircle=false; c.A:Visuals(c.Root); eq(line.Visible,false)
+end)
 test("head target stays until death, then switches, and respects range and walls",function()
     local c=setup(); local a=c.Zombie("A",8,0); local b=c.Zombie("B",15,0)
     c.A:SnapshotZombies(); c.A:SelectTarget(c.Root.Position,100)
@@ -272,6 +328,17 @@ test("manual mouse is not owned and unload completes an unfocused owned release"
     c.Input.PhysicalMouse=true; c.A:PreRender(); eq(Presses,0)
     c.Input.PhysicalMouse=false; c.A:PreRender(); eq(Presses,1)
     Active=false; c.A:Destroy(); Active=true; c.Input.WindowFocused:Fire(); eq(Releases,1)
+end)
+
+test("focus-loss event blocks automation even when executor focus status remains stale",function()
+    local c=setup(); c.Weapon("Pistol",c.P.Character); c.Zombie("Target",8,0)
+    c.Lib.Flags.FarmAutoShoot=true; c.Lib.Flags.FarmKeepDistance=true
+    c.Lib.Items.CameraThirdPerson:Set(true); c.A:SnapshotZombies(); c.A:PreRender(1/240)
+    eq(Presses,1); c.A:Kite(c.H,c.Root); assert(c.A.MoveDirection)
+    c.Input.WindowFocusReleased:Fire(); eq(Active,true); eq(c.A:Focused(),false)
+    eq(c.A.MoveDirection,nil); eq(c.A.Navigation.Active,false); eq(c.P.CameraMode,"FirstPerson")
+    c.A:Step(); c.A:PreRender(1/240); eq(Presses,1); eq(c.Shop.Calls,0)
+    c.Input.WindowFocused:Fire(); eq(c.A:Focused(),true); eq(c.P.CameraMode,"Classic")
 end)
 test("empty clips use native reload once, charge guns fail closed",function()
     local c=setup(); local t=c.Weapon("Pistol",c.P.Character); local z=c.Zombie("A",8,0)
@@ -448,6 +515,9 @@ test("real gun controller suspension restores native values and keeps native upg
     up[1]:AddRecoil(); eq(recoil.Count,1)
     v.AttackSpeed.Value=400; v.Spread.Value=1.5
     guns:SetSuspended(false); eq(v.AttackSpeed.Value,3600)
+    c.Input.WindowFocusReleased:Fire(); eq(v.AttackSpeed.Value,400); eq(v.Spread.Value,1.5)
+    eq(guns.Heartbeat,nil); eq(up[1],recoil)
+    c.Input.WindowFocused:Fire(); eq(v.AttackSpeed.Value,3600)
     guns:Destroy(); eq(v.AttackSpeed.Value,400); eq(v.Spread.Value,1.5); eq(up[1],recoil)
     assert(refreshed>=3)
 end)
@@ -469,6 +539,8 @@ local function ammoFixture()
     local calls=0
     local fn=function()
         calls=calls+1
+        c.SeenTime=box.Time.Value
+        if c.DestroyDuringNative then c.Ammo:Destroy() end
         if c.Throw then error("refill error") end
         if not c.Reject then t.CurrentValues.Ammo.Value=100 end
     end
@@ -496,6 +568,23 @@ test("rejected native ammo refill reports failure without inventing ammunition",
     eq(c.Ammo:Poll(),"failed"); eq(c.Tool.CurrentValues.Ammo.Value,10)
     eq(c.Ammo:Begin(c.Tool,c.Box,c.Root),false); eq(c.Box.Time.Value,5)
 end)
+
+test("queued native refill cancels before starting when focus is lost",function()
+    local c=ammoFixture(); c.Ammo.CanStart=function() return false end
+    assert(c.Ammo:Begin(c.Tool,c.Box,c.Root)); flush()
+    eq(c.Calls(),0); eq(c.Ammo:Poll(),"failed"); eq(c.Tool.CurrentValues.Ammo.Value,10)
+end)
+
+test("explicit fast refill test scopes the timer and restores it after native return or error",function()
+    for _,throws in ipairs({false,true}) do
+        local c=ammoFixture(); c.Throw=throws
+        assert(c.Ammo:Begin(c.Tool,c.Box,c.Root,true)); eq(c.Box.Time.Value,5)
+        flush(); eq(c.SeenTime,0.01); eq(c.Box.Time.Value,5)
+        eq(c.Ammo:Poll(),throws and "failed" or "refilled")
+    end
+    local c=ammoFixture(); c.DestroyDuringNative=true
+    assert(c.Ammo:Begin(c.Tool,c.Box,c.Root,true)); flush(); eq(c.Box.Time.Value,5)
+end)
 test("ammo selection respects creator-only deployables and unavailable stock",function()
     local c=ammoFixture(); instance("CreatorOnly","BoolValue",c.Box,{Value=true})
     instance("Creator","ObjectValue",c.Box,{Value={}})
@@ -517,10 +606,27 @@ local function nativeShop()
     local update=function() end
     local up={[4]=frame,[5]="PreviousWeapon",[8]=info}
     local nextFn=function() end
-    require=function(m) eq(m,module); return {Next=nextFn} end
+    local restockModule=instance("ShopPurchase","ModuleScript",module)
+    local map=instance("Map","Folder",c.World)
+    local box=instance("AmmoBox","Model",instance("Upgrades","Folder",map))
+    instance("Ammo","NumberValue",box,{Value=80}); instance("MaxAmmo","NumberValue",box,{Value=500})
+    local wave=instance("LocalWave","IntValue",instance("Values","Folder",c.RS),{Value=2})
+    local restockCalls=0
+    local utility={GetStructureRepairInfo=function(_,name,cash) eq(name,"AmmoBox"); return 500-box.Ammo.Value,500-box.Ammo.Value end}
+    local repair=function(_,name)
+        eq(name,"AmmoBox"); restockCalls=restockCalls+1
+        box.Ammo.Value=500; c.Cash.Value=c.Cash.Value-420
+        if c.RepairThrows then error("native repair failed after sending") end
+    end
+    local restockRemote=instance("SellRepair","RemoteEvent",c.RS)
+    local repairUp={[1]=c.P,[3]=utility,[4]=restockRemote}
+    require=function(m)
+        if m==restockModule then return {RepairStructure=repair} end
+        eq(m,module); return {Next=nextFn}
+    end
     getfenv=function(fn) eq(fn,nextFn); return {UpdateUpgrade=update} end
-    debug={getinfo=function() return {nups=18} end,
-        getupvalue=function(fn,i) eq(fn,update); return up[i] end,
+    debug={getinfo=function(fn) return {nups=fn==repair and 5 or 18} end,
+        getupvalue=function(fn,i) if fn==repair then return repairUp[i] end; eq(fn,update); return up[i] end,
         setupvalue=function(fn,i,v) eq(fn,update); up[i]=v end}
     getconnections=function(s) return s.listeners end
     local level=c.Levels.Pistol["AP Rounds"]
@@ -535,8 +641,38 @@ local function nativeShop()
     local shop=ShopFactory()
     c.Native=shop; c.Row=row; c.Level=level; c.Up=up; c.Frame=frame
     c.Clicks=function() return clicks end
+    c.Box=box; c.Wave=wave; c.RepairCalls=function() return restockCalls end
     return c
 end
+
+test("native ammo restock shares the purchase lock and attempts only once per round",function()
+    local c=nativeShop(); local record=c.Native:TryRestock(20)
+    assert(record); eq(c.RepairCalls(),1); eq(c.Box.Ammo.Value,500); eq(c.Cash.Value,580)
+    eq(c.Native:TryPurchase("Pistol",{c.Level}),nil); eq(c.Clicks(),0)
+    eq(c.Native:PollRestock(),"waiting"); Now=Now+1.1
+    eq(c.Native:PollRestock(),"submitted")
+    c.Box.Ammo.Value=80; eq(c.Native:TryRestock(20),nil); eq(c.RepairCalls(),1)
+    c.Wave.Value=3; assert(c.Native:TryRestock(20)); eq(c.RepairCalls(),2)
+end)
+
+test("ammo restock checks stock, shop, round, cash, first night and pending upgrades",function()
+    local c=nativeShop()
+    c.Box.Ammo.Value=101; eq(c.Native:TryRestock(20),nil)
+    c.Box.Ammo.Value=80; c.P.InsideShop.Value=false; eq(c.Native:TryRestock(20),nil)
+    c.P.InsideShop.Value=true; c.P.PlayerGui.VoteSkip.Text="Kills 0"; eq(c.Native:TryRestock(20),nil)
+    c.P.PlayerGui.VoteSkip.Text="Ready"; c.Cash.Value=10; eq(c.Native:TryRestock(20),nil)
+    c.Cash.Value=1000; local first=instance("FirstWave","BoolValue",c.P,{Value=true})
+    eq(c.Native:TryRestock(20),nil); first.Value=false
+    c.Native.Pending={}; eq(c.Native:TryRestock(20),nil); c.Native.Pending=nil
+    c.Frame.Visible=true; eq(c.Native:TryRestock(20),nil); c.Frame.Visible=false
+    eq(c.RepairCalls(),0); assert(c.Native:TryRestock(20)); eq(c.RepairCalls(),1)
+end)
+
+test("throwing native restock never retries an uncertain transaction in the same round",function()
+    local c=nativeShop(); c.RepairThrows=true; assert(c.Native:TryRestock(20))
+    Now=Now+1.1; eq(c.Native:PollRestock(),"unconfirmed")
+    c.Box.Ammo.Value=80; eq(c.Native:TryRestock(20),nil); eq(c.RepairCalls(),1)
+end)
 test("native shop cash purchase is single-flight and restores native selection",function()
     local c=nativeShop(); c.InstantAck=true
     local pending=c.Native:TryPurchase("Pistol",{c.Level}); assert(pending)

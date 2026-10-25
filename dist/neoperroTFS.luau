@@ -536,8 +536,19 @@ do
                 Library.MenuMouseBound = true
                 Library.MenuMouseOriginal = UserInput.MouseBehavior
                 Run:BindToRenderStep("NeoperroMenuMouse", Enum.RenderPriority.Last.Value + 2, function()
-                    if not Library.Destroyed and Library.WindowVisible then
-                        UserInput.MouseBehavior = Enum.MouseBehavior.Default
+                    if not Library.Destroyed and Library.WindowVisible and isrbxactive()
+                        and (not Library.Automation or Library.Automation.WindowFocused ~= false) then
+                        local Right = UserInput:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+                        if not Right then
+                            Library.MenuCameraDragging = false
+                        elseif not Library.MenuCameraDragging then
+                            local Window = Library.WindowInstance
+                            local OverUI = Window and ((Window.MainBounds and Utility.OnMouse(Window.MainBounds))
+                                or (Window.BindPanelBounds and Utility.OnMouse(Window.BindPanelBounds)))
+                            Library.MenuCameraDragging = not OverUI and not Library.CapturingMenuKey and UserInput:GetFocusedTextBox() == nil
+                        end
+                        -- Native right-drag needs its mouse lock; release the cursor again afterward.
+                        if not Library.MenuCameraDragging then UserInput.MouseBehavior = Enum.MouseBehavior.Default end
                         UserInput.MouseIconEnabled = true
                     end
                 end)
@@ -550,12 +561,16 @@ do
                 UserInput.MouseBehavior = Library.MenuMouseOriginal
             end
             Library.MenuMouseOriginal = nil
+            Library.MenuCameraDragging = false
         end
     end
     function Library:ChangeVisible(State)
         Library.WindowVisible = State
         Library:SetMenuMouseCapture(State)
-        if State and Library.Automation then Library.Automation:ReleaseAim(); Library.Automation:StopMovement() end
+        if State and Library.Automation then
+            Library.Automation:ReleaseAim(); Library.Automation:StopMovement()
+            Library.Automation:CancelTravel(); Library.Automation.Navigation:Reset()
+        end
         UserInput.MouseIconEnabled = true
         if not State and Library.WindowInstance then Library.WindowInstance:ClosePopups() end
         for _, Entry in ipairs(Library.Drawings) do
@@ -781,6 +796,7 @@ do
             Filled = true
         })
         WindowOutline.Position = Utility.MiddlePos(WindowOutline)
+        Window.MainBounds = WindowOutline
         local WindowOutlineBorder = Utility.AddDrawing("Square", {
             Size = Vector2.new(WindowOutline.Size.X - 2, WindowOutline.Size.Y - 2),
             Position = Vector2.new(WindowOutline.Position.X + 1, WindowOutline.Position.Y + 1),
@@ -3531,8 +3547,9 @@ local CreateFeatures = (function()
 return function(Library: any, Window: any)
     local P: any = game:GetService("Players").LocalPlayer
     local Run = game:GetService("RunService")
+    local Input = game:GetService("UserInputService")
     local F: any = {Alive = true, Connections = {}, Weapons = {}, Values = {},
-        Retries = {}, Callbacks = {}, Notices = {}, LastApply = 0}
+        Retries = {}, Callbacks = {}, Notices = {}, LastApply = 0, FocusPaused = not isrbxactive()}
     local Flags = Library.Flags
     local Keys = {"GunRapidFire", "GunNoSpread", "GunNoRecoil", "FarmAutoShoot"}
     local function Notify(Key, Message)
@@ -3549,6 +3566,7 @@ return function(Library: any, Window: any)
         pcall(function() Connection:Disconnect() end)
     end
     local function NeedUpdates()
+        if F.FocusPaused or not isrbxactive() then return false end
         for _, Key in ipairs(Keys) do if Flags[Key] == true then return true end end
         return false
     end
@@ -3632,7 +3650,7 @@ return function(Library: any, Window: any)
             local Recoil = B.Recoil
             B.RecoilProxy = setmetatable({}, {__index = Recoil})
             function B.RecoilProxy:AddRecoil(...)
-                if Flags.GunNoRecoil ~= true or F.Suspended then return Recoil.AddRecoil(Recoil, ...) end
+                if Flags.GunNoRecoil ~= true or F.Suspended or F.FocusPaused or not isrbxactive() then return Recoil.AddRecoil(Recoil, ...) end
                 return nil
             end
             debug.setupvalue(Fire, B.RecoilIndex, B.RecoilProxy)
@@ -3648,16 +3666,17 @@ return function(Library: any, Window: any)
         return B
     end
     function F:ApplyTool(Tool)
-        local BindingNeed = Flags.GunNoSpread == true or Flags.GunNoRecoil == true or Flags.FarmAutoShoot == true
+        local BindingNeed = not self.FocusPaused and isrbxactive() and (Flags.GunNoSpread == true or Flags.GunNoRecoil == true or Flags.FarmAutoShoot == true)
         local B = BindingNeed and self:BindWeapon(Tool) or self.Weapons[Tool]
         local V = Tool:FindFirstChild("CurrentValues")
         if not V then return end
+        local Suspended = self.Suspended or self.FocusPaused or not isrbxactive()
         for _, Prefix in ipairs({"", "Alt"}) do
-            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Flags.GunRapidFire == true and not self.Suspended)
-            Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Flags.GunRapidFire == true and not self.Suspended)
+            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Flags.GunRapidFire == true and not Suspended)
+            Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Flags.GunRapidFire == true and not Suspended)
         end
-        Assign(V:FindFirstChild("FireType"), "FullAuto", Flags.GunRapidFire == true and not self.Suspended)
-        local SpreadEnabled = Flags.GunNoSpread == true and not self.Suspended and B ~= nil and B.UpdateSpread ~= nil
+        Assign(V:FindFirstChild("FireType"), "FullAuto", Flags.GunRapidFire == true and not Suspended)
+        local SpreadEnabled = Flags.GunNoSpread == true and not Suspended and B ~= nil and B.UpdateSpread ~= nil
         local SpreadChanged = false
         for _, Prefix in ipairs({"", "Zoom", "Alt", "AltZoom"}) do
             local MinSpread = V:FindFirstChild(Prefix .. "Spread")
@@ -3767,6 +3786,8 @@ return function(Library: any, Window: any)
     Connect(P.ChildAdded, function(Child)
         if Child:IsA("Backpack") then F:WatchInventory(Child, "BackpackConnections") end
     end)
+    Connect(Input.WindowFocusReleased, function() F.FocusPaused = true; F:Refresh() end)
+    Connect(Input.WindowFocused, function() F.FocusPaused = false; F:Refresh() end)
     for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "FarmAutoShoot"}) do
         local Item = Library.Items[Key]
         if Item then
@@ -3832,7 +3853,7 @@ return function()
         return self.Context
     end
     function A:TryPurchase(Weapon, OrderedLevels)
-        if not self.Alive or self.Pending then return nil, "Waiting for confirmation" end
+        if not self.Alive or self.Pending or self.RestockPending then return nil, "Waiting for confirmation" end
         if not self:BetweenRounds() then return nil, "Waiting for round end" end
         if not self:InShop() then return nil, "Enter the shop to upgrade" end
         if not self.Confirmation then return nil, "Native confirmation event unavailable" end
@@ -3892,6 +3913,71 @@ return function()
         end
         return Pending, Pending and "Waiting for confirmation" or Reason
     end
+    function A:AmmoBox()
+        local Map = W:FindFirstChild("Map")
+        local Upgrades = Map and Map:FindFirstChild("Upgrades")
+        return Upgrades and Upgrades:FindFirstChild("AmmoBox")
+    end
+    function A:RestockContext()
+        local Scripts = P:FindFirstChild("PlayerScripts")
+        local Manager = Scripts and Scripts:FindFirstChild("GuiManager")
+        local Main = Manager and Manager:FindFirstChild("MainGui")
+        local Shop = Main and Main:FindFirstChild("ShopGui")
+        local Module = Shop and Shop:FindFirstChild("ShopPurchase")
+        if not Module then return nil end
+        local Purchase = Load(Module)
+        local Fn = type(Purchase) == "table" and Purchase.RepairStructure
+        if type(Fn) ~= "function" or debug.getinfo(Fn).nups ~= 5 then return nil end
+        local Utility = debug.getupvalue(Fn, 3)
+        local Remote = debug.getupvalue(Fn, 4)
+        if debug.getupvalue(Fn, 1) ~= P or type(Utility) ~= "table" or type(Utility.GetStructureRepairInfo) ~= "function"
+            or typeof(Remote) ~= "Instance" or Remote.Name ~= "SellRepair" then return nil end
+        return {Purchase = Purchase, Utility = Utility}
+    end
+    function A:TryRestock(Threshold)
+        if not self.Alive or self.Pending or self.RestockPending then return nil, "Another purchase is pending" end
+        if not self:BetweenRounds() then return nil, "Restock waits for round end" end
+        local Minutes = game:GetService("Lighting"):GetMinutesAfterMidnight()
+        if Minutes < 360 or Minutes >= 1080 then return nil, "Restock is daytime only" end
+        if not self:InShop() then return nil, "Enter the shop to restock" end
+        local Frame = self:GetContext()
+        if not Frame or Frame.Frame.Visible then return nil, "Close the native shop menu" end
+        local Box = self:AmmoBox()
+        if not Box or not Box:FindFirstChild("Ammo") or not Box:FindFirstChild("MaxAmmo")
+            or Box.MaxAmmo.Value <= 0 then return nil, "Ammo box unavailable" end
+        if Box.Ammo.Value > Box.MaxAmmo.Value * math.clamp(Threshold, 5, 50) / 100 then return nil, "Ammo box stock sufficient" end
+        local Values = RS:FindFirstChild("Values")
+        local Wave = Values and Values:FindFirstChild("LocalWave")
+        if not Wave then return nil, "Round identity unavailable" end
+        if self.RestockAttemptedWave == Wave.Value then return nil, "Restock already attempted this round" end
+        local First = P:FindFirstChild("FirstWave")
+        if First and First.Value then return nil, "Survive one night before restocking" end
+        local Money = P:FindFirstChild("ReplicatedMoney")
+        local Context = self:RestockContext()
+        if not Money or not Context then return nil, "Native restock version unsupported" end
+        local Amount, Price = Context.Utility:GetStructureRepairInfo("AmmoBox", Money.Value)
+        local function Finite(N) return type(N) == "number" and N == N and math.abs(N) < math.huge end
+        if not Finite(Amount) or not Finite(Price) or Amount <= 0 or Price <= 0 or Price > Money.Value then
+            return nil, "Waiting for restock cash"
+        end
+        local Record = {Started = os.clock(), Box = Box, BeforeStock = Box.Ammo.Value,
+            BeforeCash = Money.Value, Price = Price, Amount = Amount}
+        self.RestockPending = Record
+        -- Native restock changes stock/cash optimistically and has no dedicated acknowledgement.
+        -- One attempt per round prevents a rejected local update causing repeated spending.
+        self.RestockAttemptedWave = Wave.Value
+        local OK, Error = pcall(Context.Purchase.RepairStructure, Context.Purchase, "AmmoBox")
+        Record.Error = not OK and tostring(Error) or nil
+        return Record, "Native restock submitted"
+    end
+    function A:PollRestock()
+        local Record = self.RestockPending
+        if not Record then return "idle" end
+        if os.clock() - Record.Started < 1 then return "waiting", Record end
+        self.RestockPending = nil
+        Record.AfterStock = Record.Box.Parent and Record.Box.Ammo.Value or Record.BeforeStock
+        return Record.Error and "unconfirmed" or "submitted", Record
+    end
     function A:Poll()
         local Pending = self.Pending
         if not Pending then return "idle" end
@@ -3911,6 +3997,7 @@ return function()
         self.Alive = false
         if self.Confirmation then self.Confirmation:Disconnect() end
         self.Pending = nil
+        self.RestockPending = nil
     end
     local Remotes = RS:FindFirstChild("RemoteEvents")
     local Result = Remotes and Remotes:FindFirstChild("RefreshItemStats")
@@ -4159,7 +4246,15 @@ return function()
         if Minutes >= 360 and Minutes < 1080 then Time = Time / 5 end
         return Time / math.max(0.1, Context.Manager:GetMulti("InteractionSpeed", P, {IgnoreTool = true}))
     end
-    function A:Begin(Tool, Box, Root)
+    function A:RestoreTestTimer(Record)
+        if Record and Record.TestTime then
+            pcall(function()
+                if Record.TestTime.Parent and Record.TestTime.Value == 0.01 then Record.TestTime.Value = Record.OriginalTime end
+            end)
+            Record.TestTime = nil
+        end
+    end
+    function A:Begin(Tool, Box, Root, FastTest)
         if not self.Alive or self.Pending or os.clock() < self.NextTry then return false, "Refill cooling down" end
         if not self:Eligible(Box) then return false, "Ammo box empty or unavailable" end
         if (Root.Position - Box.PrimaryPart.Position).Magnitude >= 8 then return false, "Move within 8 studs of box" end
@@ -4168,11 +4263,18 @@ return function()
         local Context = self:Context()
         if not Context then return false, "Native refill version unsupported" end
         if debug.getupvalue(Context.Function, 3) ~= false then return false, "Native interaction already busy" end
-        local Record = {Tool = Tool, Box = Box, Before = Tool.CurrentValues.Ammo.Value, Started = os.clock(), Done = false}
+        local Record = {Tool = Tool, Box = Box, Before = Tool.CurrentValues.Ammo.Value, Started = os.clock(), Done = false, FastTest = FastTest == true}
         self.Pending = Record; self.NextTry = os.clock() + 3
         task.spawn(function()
-            if not self.Alive then Record.Done = true; Record.Error = "Cancelled"; return end
-            local OK, Error = pcall(Context.Function)
+            if not self.Alive or self.CanStart and not self.CanStart() then Record.Done = true; Record.Error = "Cancelled"; return end
+            local OK, Error = pcall(function()
+                if Record.FastTest then
+                    Record.TestTime = Box.Time; Record.OriginalTime = Box.Time.Value
+                    Box.Time.Value = 0.01
+                end
+                Context.Function()
+            end)
+            self:RestoreTestTimer(Record)
             if not OK and debug.getupvalue(Context.Function, 3) == true then
                 -- Only recover the interaction started by this call, after its thread has returned.
                 debug.setupvalue(Context.Function, 3, false)
@@ -4182,6 +4284,7 @@ return function()
             end
             Record.OK = OK; Record.Error = not OK and tostring(Error) or nil
             Record.After = Tool.Parent and Tool.CurrentValues.Ammo.Value or Record.Before
+            Record.Seconds = os.clock() - Record.Started
             Record.Done = true
         end)
         return true, "Refilling reserve at native speed"
@@ -4194,7 +4297,7 @@ return function()
         if R.OK and R.After > R.Before then return "refilled", R end
         return "failed", R
     end
-    function A:Destroy() self.Alive = false end
+    function A:Destroy() self.Alive = false; self:RestoreTestTimer(self.Pending) end
     return A
 end
 
@@ -4213,7 +4316,8 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     local Flags = Library.Flags
     local A: any = {Alive = true, Connections = {}, Watches = {}, Callbacks = {}, Inventory = {},
         Shop = CreateShopAdapter(), Navigation = CreateNavigation(), Refill = CreateAmmoAdapter(), Zombies = {}, LastScan = -10, LastStep = -10, LastVisual = -10,
-        LastBuy = -10, NextPress = 0, Lines = {}, Notices = {}, InventoryDirty = true}
+        LastBuy = -10, NextPress = 0, Lines = {}, Notices = {}, InventoryDirty = true, WindowFocused = isrbxactive() == true}
+    A.Refill.CanStart = function() return A.Alive and A:Focused() end
     local RenderName = "NeoperroAutomation"
     local function Connect(Signal, Callback, Bucket)
         local C = Signal:Connect(Callback)
@@ -4255,7 +4359,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         return nil
     end
     function A:Focused()
-        return isrbxactive() == true and Input:GetFocusedTextBox() == nil
+        return self.WindowFocused ~= false and isrbxactive() == true and Input:GetFocusedTextBox() == nil
             and not Library.WindowVisible and not Library.CapturingMenuKey
     end
     function A:ReleaseMouse()
@@ -4349,7 +4453,9 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not self.SavedWeapon and self.SavedPriority and table.find(Options, self.SavedPriority) then
             Selected = self.SavedPriority; self.SavedPriority = nil
         end
-        if not table.find(Options, Selected) then Selected = Options[2] or Options[1] end
+        if Selected == "Select upgrade" or not table.find(Options, Selected) then
+            Selected = table.find(Options, "Damage") and "Damage" or Options[2] or Options[1]
+        end
         Library.Items.UpgradePriority:SetOptions(Options, Selected)
     end
     function A:RestoreSelection(Values)
@@ -4410,22 +4516,33 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Hit = W:Raycast(Origin, Z.Head.Position - Origin, Params)
         return Hit == nil or Hit.Instance:IsDescendantOf(Z.Model)
     end
-    function A:SelectTarget(Origin, Range, Tool)
+    function A:SelectTarget(Origin, Range, Tool, ThrottleSearch)
+        local Folder = W:FindFirstChild("Zombies")
         local function Valid(Z)
-            local Folder = W:FindFirstChild("Zombies")
             return Folder ~= nil and Z and Z.Model.Parent == Folder and Z.Head.Parent and Z.Humanoid.Health > 0
-                and (Z.Head.Position - Origin).Magnitude <= Range and self:Visible(Origin, Z, Tool)
+                and (Z.Head.Position - Origin).Magnitude <= Range
         end
-        if Valid(self.Target) then return self.Target end
-        local Best, Distance = nil, math.huge
+        if Valid(self.Target) and self:Visible(Origin, self.Target, Tool) then return self.Target end
+        local Previous = self.Target
+        self.Target = nil
+        local Now = os.clock()
+        if ThrottleSearch and not Previous and Now < (self.NextTargetSearch or 0) then return nil end
+        self.NextTargetSearch = Now + 1 / 30
+        local Candidates = {}
         for _, Z in ipairs(self.Zombies) do
             if Valid(Z) then
-                local D = (Z.Head.Position - Origin).Magnitude
-                if D < Distance then Best = Z; Distance = D end
+                local Delta = Z.Head.Position - Origin
+                table.insert(Candidates, {Zombie = Z, Distance = Delta:Dot(Delta)})
             end
         end
-        self.Target = Best
-        return Best
+        table.sort(Candidates, function(X, Y) return X.Distance < Y.Distance end)
+        for _, Candidate in ipairs(Candidates) do
+            if self:Visible(Origin, Candidate.Zombie, Tool) then
+                self.Target = Candidate.Zombie
+                return self.Target
+            end
+        end
+        return nil
     end
     function A:Equipped()
         if P.Character then
@@ -4455,7 +4572,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:CameraState()
         self:RestoreView()
-        if Flags.CameraThirdPerson then
+        if Flags.CameraThirdPerson and self.WindowFocused ~= false and isrbxactive() then
             if not self.CameraSaved then
                 self.CameraSaved = {Mode = P.CameraMode, Min = P.CameraMinZoomDistance, Max = P.CameraMaxZoomDistance}
             end
@@ -4504,7 +4621,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
                 and type(B.Environment.reload) == "function" then
                 self.Reloading = true; self.NextReload = os.clock() + 1
                 task.spawn(function()
-                    if self.Alive and Flags.FarmAutoShoot and Tool.Parent == P.Character then pcall(B.Environment.reload) end
+                    if self.Alive and self:Focused() and Flags.FarmAutoShoot and Tool.Parent == P.Character then pcall(B.Environment.reload) end
                     self.Reloading = false
                 end)
             end
@@ -4519,8 +4636,12 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         elseif not self.MouseOwned and os.clock() >= self.NextPress
             and not Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) and not self.ReleasePending then
             mouse1press(); self.MouseOwned = true; self.PressedBinding = B
-            self.PressRelease = os.clock() + 0.035
-            self.NextPress = os.clock() + math.max(0.035, 60 / Number(B.Environment.LAS or Value(Tool, "AttackSpeed", 300), 300, 1, 7200))
+            local Now = os.clock()
+            local Frame = Number(self.FrameDelta, 1 / 60, 1 / 1000, 1 / 15)
+            local Interval = math.max(Frame * 2, 60 / Number(B.Environment.LAS or Value(Tool, "AttackSpeed", 300), 300, 1, 7200))
+            self.PressRelease = Now + math.min(0.035, math.max(Frame * 0.5, Interval * 0.3))
+            -- Keep elapsed-time cadence without replaying missed shots after a hitch.
+            self.NextPress = (self.NextPress > Now - Interval and self.NextPress or Now) + Interval
         end
         Status("FarmStatus", "Head lock: " .. self.Target.Model.Name)
     end
@@ -4536,11 +4657,12 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             self.MovingHumanoid = H; self:Sprint(Flags.FarmUseSprint == true)
         else self:StopMovement() end
     end
-    function A:TravelToShop(H, Root)
+    function A:TravelToShop(H, Root, Label)
         local Regions = RS:FindFirstChild("ShopRegions")
         local Region = Regions and Regions:FindFirstChild("MainShopRegion")
-        if not Region or not Region:IsA("BasePart") then Status("UpgradeStatus", "Shop location unavailable"); return end
-        self:TravelToPoint(H, Root, Region.Position, "shop", "UpgradeStatus", "Walking to shop")
+        Label = Label or "UpgradeStatus"
+        if not Region or not Region:IsA("BasePart") then Status(Label, "Shop location unavailable"); return end
+        self:TravelToPoint(H, Root, Region.Position, "shop", Label, "Walking to shop")
     end
     function A:TravelToPoint(H, Root, Goal, Purpose, Label, Message, IgnoreDestinationModel)
         if self.TravelPurpose ~= Purpose then self:CancelTravel(); self:StopMovement(); self.PathFailedUntil = nil end
@@ -4607,7 +4729,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if State == "refilled" then Status("AmmoStatus", "Reserve refilled")
         elseif State == "failed" then Status("AmmoStatus", "Refill interrupted or rejected") end
         if self.Refill.Pending then self:ReleaseAim(); Status("AmmoStatus", "Native ammo-box interaction"); return false end
-        if not Flags.FarmAutoRefill or self.Shop.Pending then
+        if not Flags.FarmAutoRefill or self.Shop.Pending or self.Shop.RestockPending then
             if self.TravelPurpose == "ammo" then self:CancelTravel() end
             return false
         end
@@ -4641,6 +4763,35 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         Status("AmmoStatus", Message)
         return false
     end
+    function A:TestFastRefill()
+        local _, H, Root = self:Character()
+        local Tool = self:Equipped()
+        if not H or not Root or not Tool or not self:Focused() then
+            Window.SendNotification("Warning", "Hide UI, focus Roblox and equip a gun", 4); return
+        end
+        if self.Shop.Pending or self.Shop.RestockPending or self.Refill.Pending then
+            Window.SendNotification("Warning", "Wait for the current transaction", 4); return
+        end
+        local Box, Distance = self.Refill:Nearest(Root)
+        if not Box or Distance >= 8 then Window.SendNotification("Warning", "Test requires a stocked box within 8 studs", 4); return end
+        self:CancelTravel(); self:StopMovement(); self.Navigation:Reset(); self:ReleaseAim()
+        local Began, Message = self.Refill:Begin(Tool, Box, Root, true)
+        if Began then
+            self.FastRefillTest = self.Refill.Pending
+            Status("AmmoStatus", "Testing 0.01s native refill")
+        else Window.SendNotification("Warning", Message, 4) end
+    end
+    function A:PollRefillTest()
+        local Record = self.FastRefillTest
+        if not Record or not Record.Done then return end
+        self.FastRefillTest = nil
+        local After = Record.After or Record.Before
+        local Message = string.format("Fast refill: reserve %d -> %d (%.2fs)%s", Record.Before, After,
+            Record.Seconds or os.clock() - Record.Started, After > Record.Before and " | granted" or " | no ammo granted")
+        Status("AmmoStatus", After > Record.Before and "Fast test: reserve increased" or "Fast test: no ammo granted")
+        Window.SendNotification("Normal", Message, 6)
+        self.LastFastRefillResult = {Before = Record.Before, After = After, Seconds = Record.Seconds, Message = Message}
+    end
     function A:OrderedLevels()
         local Levels = self.Shop:Levels(Flags.UpgradeWeapon)
         if not Levels or self.Inventory[Flags.UpgradeWeapon] == nil then return {} end
@@ -4662,6 +4813,32 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         Library.Items.UpgradeEnabled:Set(false)
         if not Complete or Flags.UpgradeNotify then Notify("upgrade-stop", Message) end
     end
+    function A:Restock(H, Root)
+        local State = self.Shop:PollRestock()
+        if State == "waiting" then
+            self:ReleaseAim(); self:StopMovement()
+            Status("RestockStatus", "Waiting for native restock"); return true
+        elseif State == "submitted" or State == "unconfirmed" then
+            Status("RestockStatus", State == "submitted" and "Restock sent; check box stock" or "Restock unconfirmed; no retry")
+            return false
+        end
+        if not Flags.FarmRestockBox or self.Shop.Pending or self.Refill.Pending then return false end
+        local Box = self.Shop:AmmoBox()
+        local Threshold = Number(Flags.FarmRestockThreshold, 20, 5, 50)
+        if not Box or not Box:FindFirstChild("Ammo") or not Box:FindFirstChild("MaxAmmo") or Box.MaxAmmo.Value <= 0 then
+            Status("RestockStatus", "Ammo box unavailable"); return false
+        end
+        if Box.Ammo.Value > Box.MaxAmmo.Value * Threshold / 100 then
+            Status("RestockStatus", "Ammo box stock sufficient"); return false
+        end
+        if not H or not self:Focused() then Status("RestockStatus", "Hide UI and focus to restock"); return false end
+        if not self.Shop:BetweenRounds() then Status("RestockStatus", "Restock waits for round end"); return false end
+        if not self.Shop:InShop() then self:TravelToShop(H, Root, "RestockStatus"); return true end
+        self:CancelTravel(); self:ReleaseAim()
+        local _, Message = self.Shop:TryRestock(Threshold)
+        Status("RestockStatus", Message)
+        return self.Shop.RestockPending ~= nil
+    end
     function A:Upgrade(H, Root)
         local State, Pending = self.Shop:Poll()
         if State == "confirmed" then
@@ -4676,7 +4853,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             self:StopUpgrade("Upgrade unconfirmed; stopped to avoid repeat buys", false)
             return false
         elseif State == "waiting" then Status("UpgradeStatus", "Waiting for server confirmation"); return false end
-        if not Flags.UpgradeEnabled or self.Refill.Pending then return false end
+        if not Flags.UpgradeEnabled or self.Refill.Pending or self.Shop.RestockPending then return false end
         if self.UnconfirmedWeapon == Flags.UpgradeWeapon then
             self:StopUpgrade("Previous upgrade unconfirmed; check native shop manually", false)
             return false
@@ -4715,53 +4892,73 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if self.DistanceText then self.DistanceText.Visible = false end
     end
     function A:Visuals(Root)
-        self:HideVisuals()
         local Camera = W.CurrentCamera
-        if not Root or not Camera then return end
-        if Flags.FarmShowDistance then
+        if not Root or not Camera then self:HideVisuals(); return end
+        local Now = os.clock()
+        if self.DistanceText then self.DistanceText.Visible = Flags.FarmShowDistance == true end
+        if Flags.FarmShowDistance and Now >= (self.NextDistanceText or 0) then
+            self.NextDistanceText = Now + 0.1
             if not self.DistanceText then
                 self.DistanceText = Drawing.new("Text"); self.DistanceText.Size = 14
                 self.DistanceText.Font = Drawing.Fonts.UI; self.DistanceText.Center = true
                 self.DistanceText.Outline = true; self.DistanceText.Color = Color3.fromRGB(200, 65, 75)
             end
             local Nearest = math.huge
-            for _, Z in ipairs(self.Zombies) do Nearest = math.min(Nearest, Flat(Root.Position - Z.Head.Position).Magnitude) end
+            for _, Z in ipairs(self.Zombies) do
+                if Z.Head.Parent and Z.Humanoid.Health > 0 then Nearest = math.min(Nearest, Flat(Root.Position - Z.Head.Position).Magnitude) end
+            end
             self.DistanceText.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y * 0.7)
             self.DistanceText.Text = Nearest < math.huge and string.format("Nearest zombie: %.0f studs", Nearest) or "No live zombies"
             self.DistanceText.Visible = true
         end
         if Flags.FarmShowCircle then
             local Radius = Number(Flags.FarmDistance, 24, 5, 100)
+            if self.CircleRadius ~= Radius then
+                self.CircleRadius = Radius; self.CircleOffsets = {}
+                for I = 0, 47 do
+                    local Angle = I * math.pi / 24
+                    self.CircleOffsets[I + 1] = Vector3.new(math.cos(Angle) * Radius, 0, math.sin(Angle) * Radius)
+                end
+            end
+            local Center = Root.Position - Vector3.new(0, 2.6, 0)
+            self.CirclePoints = self.CirclePoints or {}
+            local Points = self.CirclePoints
+            for I, Offset in ipairs(self.CircleOffsets) do
+                local Point, OnScreen = Camera:WorldToViewportPoint(Center + Offset)
+                Points[I] = Points[I] or {}
+                Points[I].Point = Point; Points[I].Visible = OnScreen and Point.Z > 0
+            end
             for Index = 1, 48 do
                 local Line = self.Lines[Index]
                 if not Line then
                     Line = Drawing.new("Line"); Line.Color = Color3.fromRGB(125, 15, 30)
                     Line.Thickness = 1; Line.Transparency = 0.7; self.Lines[Index] = Line
                 end
-                local Angle = (Index - 1) * math.pi / 24
-                local Next = Index * math.pi / 24
-                local Center = Root.Position - Vector3.new(0, 2.6, 0)
-                local X, OnX = Camera:WorldToViewportPoint(Center + Vector3.new(math.cos(Angle) * Radius, 0, math.sin(Angle) * Radius))
-                local Y, OnY = Camera:WorldToViewportPoint(Center + Vector3.new(math.cos(Next) * Radius, 0, math.sin(Next) * Radius))
-                if OnX and OnY and X.Z > 0 and Y.Z > 0 then
-                    Line.From = Vector2.new(X.X, X.Y); Line.To = Vector2.new(Y.X, Y.Y); Line.Visible = true
+                local X, Y = Points[Index], Points[Index % 48 + 1]
+                Line.Visible = X.Visible and Y.Visible
+                if Line.Visible then
+                    Line.From = Vector2.new(X.Point.X, X.Point.Y); Line.To = Vector2.new(Y.Point.X, Y.Point.Y)
                 end
             end
+        else
+            for _, Line in ipairs(self.Lines) do Line.Visible = false end
         end
     end
     function A:Step()
         local Now = os.clock()
-        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled or Flags.FarmAutoRefill
+        self:PollRefillTest()
+        local Active = Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle or Flags.UpgradeEnabled or Flags.FarmAutoRefill or Flags.FarmRestockBox
         if self.InventoryDirty or (Active or Library.WindowVisible) and Now - self.LastScan >= 1 then self:ScanInventory() end
         self:CameraState()
         local _, H, Root = self:Character()
-        if Active then self:SnapshotZombies() end
-        local Travelling = self:Upgrade(H, Root)
-        if not H or not self:Focused() or self.Shop.Pending then
+        if Active and self:Focused() then self:SnapshotZombies() end
+        local Restocking = self:Restock(H, Root)
+        local Travelling = not Restocking and self:Upgrade(H, Root)
+        if not H or not self:Focused() or self.Shop.Pending or self.Shop.RestockPending then
             self:ReleaseAim(); self:StopMovement(); self:CancelTravel(); self.Navigation:Reset()
             self.Refill:Poll()
             if Flags.FarmAutoShoot or Flags.FarmKeepDistance then Status("FarmStatus", not H and "Waiting for respawn" or "Hide UI and focus Roblox") end
-        elseif Travelling then self:ReleaseAim(); self.Navigation:Reset()
+        elseif Travelling or Restocking then self:ReleaseAim(); self.Navigation:Reset()
         else
             if self.TravelPurpose == "shop" then self:CancelTravel() end
             local Distance = self.Navigation:Separation(Root.Position, self.Zombies)
@@ -4779,12 +4976,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         self:RefreshRender()
     end
-    function A:PreRender()
+    function A:PreRender(DeltaTime)
         self:RestoreView()
         if not self.Alive then return end
+        self.FrameDelta = Number(DeltaTime, self.FrameDelta or 1 / 60, 1 / 1000, 1 / 15)
+        if not Flags.FarmAutoShoot then return end
         local _, H, Root = self:Character()
         local Camera = W.CurrentCamera
-        if not (H and Camera and self:Focused() and (not self.Travelling or self.TravelPurpose == "ammo") and not self.Shop.Pending and not self.Refill.Pending and Flags.FarmAutoShoot) then
+        if not (H and Camera and self:Focused() and (not self.Travelling or self.TravelPurpose == "ammo") and not self.Shop.Pending and not self.Shop.RestockPending and not self.Refill.Pending and Flags.FarmAutoShoot) then
             self:ReleaseAim(); return
         end
         local Tool = self:Equipped()
@@ -4796,7 +4995,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if (not self.Target or self.Target.Humanoid.Health <= 0) and os.clock() - (self.LastZombieScan or -10) >= 0.03 then
             self:SnapshotZombies()
         end
-        local Target = self:SelectTarget(Origin, Number(Range, 0, 0, 1000000), Tool)
+        local Target = self:SelectTarget(Origin, Number(Range, 0, 0, 1000000), Tool, true)
         if not Target then self:ReleaseAim(); Status("FarmStatus", "No visible head in native range"); return end
         self:Aim(Camera, Root, Target)
         if self.AimError < 0.25 then self:Shoot(Tool) else self:ReleaseMouse(); Status("FarmStatus", "Waiting for head alignment") end
@@ -4806,7 +5005,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not self.Alive then return end
         local _, H, Root = self:Character()
         if H and self:Focused() and self.MoveDirection then H:Move(self.MoveDirection, false) end
-        if os.clock() - self.LastVisual >= 0.05 then
+        if Flags.FarmShowCircle or os.clock() - self.LastVisual >= 0.1 then
             self.LastVisual = os.clock(); self:Visuals(Root)
         end
     end
@@ -4821,8 +5020,8 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Need = not self.Failed and (Flags.FarmAutoShoot or Flags.FarmKeepDistance or Flags.FarmShowDistance or Flags.FarmShowCircle)
         if Need and not self.Rendering then
             self.Rendering = true
-            Run:BindToRenderStep(RenderName .. "Aim", Enum.RenderPriority.Camera.Value + 1, function()
-                local OK, Error = pcall(self.PreRender, self)
+            Run:BindToRenderStep(RenderName .. "Aim", Enum.RenderPriority.Camera.Value + 1, function(DeltaTime)
+                local OK, Error = pcall(self.PreRender, self, DeltaTime)
                 if not OK then self:Fail(Error) end
             end)
             Run:BindToRenderStep(RenderName, Enum.RenderPriority.Last.Value + 1, function()
@@ -4876,6 +5075,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     Own("FarmAutoShoot", function(V) if not V then A:ReleaseAim() end end)
     Own("FarmKeepDistance", function(V) if not V then A:StopMovement(); A.Navigation:Reset() end end)
     Own("FarmAutoRefill", function(V) if not V and A.TravelPurpose == "ammo" then A:CancelTravel() end end)
+    Own("FarmRestockBox", function(V) if not V and not Flags.UpgradeEnabled then A:CancelTravel() end end)
     Own("FarmUseSprint", function(V) if not V then A:Sprint(false) end end)
     Own("FarmShowDistance", function() A:HideVisuals() end)
     Own("FarmShowCircle", function() A:HideVisuals() end)
@@ -4885,8 +5085,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     Connect(P.ChildAdded, function(C)
         if C:IsA("Backpack") or C.Name == "Backgear" or C.Name == "Upgrades" then A:Watch(C.Name, C) end
     end)
-    Connect(Input.WindowFocusReleased, function() A:ReleaseAim(); A:StopMovement(); A:CancelTravel() end)
-    Connect(Input.WindowFocused, function() A:ReleaseMouse(); A:Sprint(false) end)
+    Connect(Input.WindowFocusReleased, function()
+        A.WindowFocused = false
+        A:ReleaseAim(); A:StopMovement(); A:CancelTravel(); A.Navigation:Reset(); A:CameraState()
+    end)
+    Connect(Input.WindowFocused, function()
+        A.WindowFocused = true
+        A:ReleaseMouse(); A:Sprint(false); A:CameraState()
+    end)
     A:Watch("Character", P.Character)
     A:Watch("Backpack", P:FindFirstChildOfClass("Backpack"))
     A:Watch("Backgear", P:FindFirstChild("Backgear")); A:Watch("Upgrades", P:FindFirstChild("Upgrades"))
@@ -4929,9 +5135,15 @@ Farm:Toggle({Title = "show distance", Flag = "FarmShowDistance"})
 Farm:Toggle({Title = "show distance circle", Flag = "FarmShowCircle"})
 Farm:Toggle({Title = "use sprint (Shift)", Flag = "FarmUseSprint", State = true})
 Farm:Toggle({Title = "auto refill ammo", Flag = "FarmAutoRefill"})
+Farm:Button({Title = "test 0.01s refill", Callback = function()
+    if Library.Automation then Library:ChangeVisible(false); Library.Automation:TestFastRefill() end
+end})
+Farm:Toggle({Title = "auto restock ammo box", Flag = "FarmRestockBox"})
+Farm:Slider({Title = "restock below (%)", Flag = "FarmRestockThreshold", Symbol = "%", Default = 20, Min = 5, Max = 50, Decimals = 1})
 Library.FarmStatus = Farm:Label("Head lock uses native weapon range")
 Library.MoveStatus = Farm:Label("Retreat respects walls and ground")
 Library.AmmoStatus = Farm:Label("Auto refill uses nearby stocked boxes")
+Library.RestockStatus = Farm:Label("Restock uses native shop cash")
 
 local Upgrade = Main:Section("AUTO UPGRADE", "Right")
 Upgrade:Toggle({Title = "enabled", Flag = "UpgradeEnabled"})

@@ -504,8 +504,19 @@ do
                 Library.MenuMouseBound = true
                 Library.MenuMouseOriginal = UserInput.MouseBehavior
                 Run:BindToRenderStep("NeoperroMenuMouse", Enum.RenderPriority.Last.Value + 2, function()
-                    if not Library.Destroyed and Library.WindowVisible then
-                        UserInput.MouseBehavior = Enum.MouseBehavior.Default
+                    if not Library.Destroyed and Library.WindowVisible and isrbxactive()
+                        and (not Library.Automation or Library.Automation.WindowFocused ~= false) then
+                        local Right = UserInput:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+                        if not Right then
+                            Library.MenuCameraDragging = false
+                        elseif not Library.MenuCameraDragging then
+                            local Window = Library.WindowInstance
+                            local OverUI = Window and ((Window.MainBounds and Utility.OnMouse(Window.MainBounds))
+                                or (Window.BindPanelBounds and Utility.OnMouse(Window.BindPanelBounds)))
+                            Library.MenuCameraDragging = not OverUI and not Library.CapturingMenuKey and UserInput:GetFocusedTextBox() == nil
+                        end
+                        -- Native right-drag needs its mouse lock; release the cursor again afterward.
+                        if not Library.MenuCameraDragging then UserInput.MouseBehavior = Enum.MouseBehavior.Default end
                         UserInput.MouseIconEnabled = true
                     end
                 end)
@@ -518,12 +529,16 @@ do
                 UserInput.MouseBehavior = Library.MenuMouseOriginal
             end
             Library.MenuMouseOriginal = nil
+            Library.MenuCameraDragging = false
         end
     end
     function Library:ChangeVisible(State)
         Library.WindowVisible = State
         Library:SetMenuMouseCapture(State)
-        if State and Library.Automation then Library.Automation:ReleaseAim(); Library.Automation:StopMovement() end
+        if State and Library.Automation then
+            Library.Automation:ReleaseAim(); Library.Automation:StopMovement()
+            Library.Automation:CancelTravel(); Library.Automation.Navigation:Reset()
+        end
         UserInput.MouseIconEnabled = true
         if not State and Library.WindowInstance then Library.WindowInstance:ClosePopups() end
         for _, Entry in ipairs(Library.Drawings) do
@@ -749,6 +764,7 @@ do
             Filled = true
         })
         WindowOutline.Position = Utility.MiddlePos(WindowOutline)
+        Window.MainBounds = WindowOutline
         local WindowOutlineBorder = Utility.AddDrawing("Square", {
             Size = Vector2.new(WindowOutline.Size.X - 2, WindowOutline.Size.Y - 2),
             Position = Vector2.new(WindowOutline.Position.X + 1, WindowOutline.Position.Y + 1),
