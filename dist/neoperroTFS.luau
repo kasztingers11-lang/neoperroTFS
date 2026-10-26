@@ -312,7 +312,7 @@ do
         return "neoperroTFS/Configs/" .. Name .. ".json"
     end
     Utility.SaveConfig = function(Name)
-        local Values = {MenuKey = Library.MenuKey.Name, GunRateProfiles = Library.GunRateProfiles}
+        local Values = {MenuKey = Library.MenuKey.Name}
         for Flag, Item in pairs(Library.Items) do
             if Item.TypeOf == "Colorpicker" then
                 Values[Flag] = {Kind = "Color", HSV = Item.Colors.HSV}
@@ -3606,10 +3606,8 @@ return function(Library: any, Window: any)
         for _, Key in ipairs(Keys) do if Flags[Key] == true then return true end end
         return false
     end
-    function F:RequestedRate(Tool)
-        local Saved = Flags.GunUsePresets and Library.GunRateProfiles and Tool and Library.GunRateProfiles[Tool.Name]
-        local Rate = tonumber(Saved)
-        if not Rate or Rate ~= Rate or math.abs(Rate) == math.huge then Rate = tonumber(Flags.GunFireRate) end
+    function F:RequestedRate()
+        local Rate = tonumber(Flags.GunFireRate)
         if not Rate or Rate ~= Rate or math.abs(Rate) == math.huge then Rate = 60 end
         return math.clamp(Rate, 1, 120)
     end
@@ -3828,7 +3826,7 @@ return function(Library: any, Window: any)
     Connect(P.ChildAdded, function(Child)
         if Child:IsA("Backpack") then F:WatchInventory(Child, "BackpackConnections") end
     end)
-    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "GunUsePresets", "FarmAutoShoot"}) do
+    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "FarmAutoShoot"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback
@@ -4695,18 +4693,8 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         Library.Items.UpgradePriority:SetOptions(Options, Selected)
     end
     function A:RestoreSelection(Values)
-        local Profiles = {}
-        if type(Values.GunRateProfiles) == "table" then
-            local Count = 0
-            for Name, Rate in pairs(Values.GunRateProfiles) do
-                if type(Name) == "string" and #Name <= 100 and type(Rate) == "number" and Rate == Rate and math.abs(Rate) < math.huge and Count < 128 then
-                    Profiles[Name] = math.clamp(Rate, 1, 120); Count = Count + 1
-                end
-            end
-        end
-        Library.GunRateProfiles = Profiles
         self.SavedLoadout = {}
-        for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon", "GunPresetWeapon"}) do
+        for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon"}) do
             if type(Values[Key]) == "string" then self.SavedLoadout[Key] = Values[Key] end
         end
         if Guns.QueueRefresh then Guns:QueueRefresh() end
@@ -5584,7 +5572,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not A.Scanning then A.SavedWeapon = nil; A.SavedPriority = nil end
         A:ScanPriorities(); A:CancelTravel()
     end)
-    for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon", "GunPresetWeapon"}) do
+    for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon"}) do
         Own(Key, function() if A.SavedLoadout and not A.ScanningLoadout then A.SavedLoadout[Key] = nil end end)
     end
     Own("FarmCashReserve", function() A.UpgradeIdle = false; A.ReadyQuietSince = nil end)
@@ -5671,6 +5659,15 @@ return function(Library: any, Window: any)
     local White = Color3.fromRGB(255, 237, 241)
     local RenderName = "NeoperroHitVisuals"
     local function Finite(N) return type(N) == "number" and N == N and math.abs(N) < math.huge end
+    function V:Intensity()
+        return math.clamp(Finite(Flags.VisualIntensity) and Flags.VisualIntensity or 2, 1, 3)
+    end
+    function V:ApplyStyle()
+        local Scale = self:Intensity()
+        for _, T in ipairs(self.Tracers) do T.Glow.Thickness = 7 + Scale * 2; T.Core.Thickness = 2 + Scale * 0.5 end
+        for _, Lines in ipairs(self.HitLines or {}) do Lines.Glow.Thickness = 6 + Scale * 2; Lines.Core.Thickness = 2 + Scale * 0.5 end
+        if self.DamageText then self.DamageText.Size = 20 + Scale * 3 end
+    end
     local function Duration(Key, Default)
         local N = Flags[Key]
         return math.clamp(Finite(N) and N or Default, 0.1, 0.8)
@@ -5722,7 +5719,7 @@ return function(Library: any, Window: any)
         end
         local H = Instance.new("Highlight")
         H.Name = "HitFlash"; H.Adornee = Model; H.FillColor = Red; H.OutlineColor = White
-        H.FillTransparency = 0.2; H.OutlineTransparency = 0; H.DepthMode = Enum.HighlightDepthMode.Occluded
+        H.FillTransparency = 0.08; H.OutlineTransparency = 0; H.DepthMode = Enum.HighlightDepthMode.Occluded
         H.Parent = self.Folder
         self.Chams[Model] = {Object = H, At = os.clock()}
     end
@@ -5731,8 +5728,8 @@ return function(Library: any, Window: any)
         local Record
         for _, T in ipairs(self.Tracers) do if not T.Active then Record = T; break end end
         if not Record and #self.Tracers < 96 then
-            Record = {Glow = DrawingObject("Line", {Color = Red, Thickness = 7, ZIndex = 3}),
-                Core = DrawingObject("Line", {Color = White, Thickness = 2, ZIndex = 4})}
+            Record = {Glow = DrawingObject("Line", {Color = Red, Thickness = 7 + self:Intensity() * 2, ZIndex = 3}),
+                Core = DrawingObject("Line", {Color = White, Thickness = 2 + self:Intensity() * 0.5, ZIndex = 4})}
             table.insert(self.Tracers, Record)
         end
         if not Record then
@@ -5809,10 +5806,10 @@ return function(Library: any, Window: any)
         if self.HitLines then return end
         self.HitLines = {}
         for I = 1, 4 do
-            self.HitLines[I] = {Glow = DrawingObject("Line", {Color = Red, Thickness = 6, ZIndex = 7}),
-                Core = DrawingObject("Line", {Color = White, Thickness = 2, ZIndex = 8})}
+            self.HitLines[I] = {Glow = DrawingObject("Line", {Color = Red, Thickness = 6 + self:Intensity() * 2, ZIndex = 7}),
+                Core = DrawingObject("Line", {Color = White, Thickness = 2 + self:Intensity() * 0.5, ZIndex = 8})}
         end
-        self.DamageText = DrawingObject("Text", {Color = White, Font = Drawing.Fonts.System, Size = 20, Center = true, Outline = true, ZIndex = 8})
+        self.DamageText = DrawingObject("Text", {Color = White, Font = Drawing.Fonts.System, Size = 20 + self:Intensity() * 3, Center = true, Outline = true, ZIndex = 8})
     end
     function V:Render()
         if not self.Alive then return end
@@ -5820,7 +5817,7 @@ return function(Library: any, Window: any)
         local Now = os.clock()
         for _, T in ipairs(self.Tracers) do
             if T.Active then
-            local Alpha = 1 - (Now - (T.At or -10)) / Duration("VisualTracerTime", 0.25)
+            local Alpha = 1 - (Now - (T.At or -10)) / Duration("VisualTracerTime", 0.35)
             local Visible = T.Active and Flags.VisualTracers and Camera and Alpha > 0
             if Visible then
                 local X = Camera:WorldToViewportPoint(T.Start)
@@ -5829,7 +5826,7 @@ return function(Library: any, Window: any)
                 if Visible then
                     T.Glow.From = Vector2.new(X.X, X.Y); T.Glow.To = Vector2.new(Y.X, Y.Y)
                     T.Core.From = T.Glow.From; T.Core.To = T.Glow.To
-                    T.Glow.Transparency = Alpha * 0.45; T.Core.Transparency = Alpha
+                    T.Glow.Transparency = Alpha * 0.75; T.Core.Transparency = Alpha
                 end
             end
             T.Glow.Visible = Visible == true; T.Core.Visible = Visible == true
@@ -5837,14 +5834,14 @@ return function(Library: any, Window: any)
             end
         end
         for Model, Record in pairs(self.Chams) do
-            local Alpha = (Now - Record.At) / Duration("VisualHitTime", 0.3)
+            local Alpha = (Now - Record.At) / Duration("VisualHitTime", 0.45)
             if not Flags.VisualHitChams or not Model.Parent or Alpha >= 1 then
                 Destroy(Record.Object); self.Chams[Model] = nil
-            else Record.Object.FillTransparency = 0.2 + Alpha * 0.8; Record.Object.OutlineTransparency = Alpha end
+            else Record.Object.FillTransparency = 0.08 + Alpha * 0.92; Record.Object.OutlineTransparency = Alpha end
         end
         if Flags.VisualHitIndicator then self:HitDrawings() end
         if self.HitLines then
-            local Alpha = 1 - (Now - self.LastHit) / Duration("VisualHitTime", 0.3)
+            local Alpha = 1 - (Now - self.LastHit) / Duration("VisualHitTime", 0.45)
             local Contact = self.HitContact
             local Point = Contact and Contact.Position
             local Head = Contact and Contact.Model and Contact.Model:FindFirstChild("Head")
@@ -5858,11 +5855,12 @@ return function(Library: any, Window: any)
                     local SX = (I == 1 or I == 4) and -1 or 1
                     local SY = I <= 2 and -1 or 1
                     local X, Y = Screen.X, Screen.Y
-                    local Offset = 7 + (1 - Alpha) * 5
+                    local Scale = self:Intensity()
+                    local Offset = 8 + Scale + (1 - Alpha) * 6
                     Lines.Glow.From = Vector2.new(X + SX * Offset, Y + SY * Offset)
-                    Lines.Glow.To = Vector2.new(X + SX * (Offset + 12), Y + SY * (Offset + 12))
+                    Lines.Glow.To = Vector2.new(X + SX * (Offset + 12 + Scale * 3), Y + SY * (Offset + 12 + Scale * 3))
                     Lines.Core.From = Lines.Glow.From; Lines.Core.To = Lines.Glow.To
-                    Lines.Glow.Transparency = Alpha * 0.5; Lines.Core.Transparency = Alpha
+                    Lines.Glow.Transparency = Alpha * 0.8; Lines.Core.Transparency = Alpha
                 end
             end
             local DamageAlpha = 1 - (Now - self.DamageAt) / 0.6
@@ -5911,11 +5909,11 @@ return function(Library: any, Window: any)
     local Damage = Remotes and Remotes:FindFirstChild("ReturnServerDamage")
     if Hit then Connect(Hit.OnClientEvent, function() V:OnHit() end) end
     if Damage then Connect(Damage.OnClientEvent, function(Amount) V:OnDamage(Amount) end) end
-    for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator"}) do
+    for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator", "VisualIntensity"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback
-            local Owned = function(Value) Previous(Value); if V.Alive then V:Refresh() end end
+            local Owned = function(Value) Previous(Value); if V.Alive then V:ApplyStyle(); V:Refresh() end end
             V.Callbacks[Item] = {Previous = Previous, Owned = Owned}; Item.Callback = Owned
         end
     end
@@ -5929,7 +5927,7 @@ end)()
 local LoadTime = tick()
 
 Library.CreateLoader("NEOPERRO", Vector2.new(300, 300))
-local Window = Library.Window("NEOPERRO | THE FINAL STAND 2", Vector2.new(500, 620))
+local Window = Library.Window("NEOPERRO | THE FINAL STAND 2", Vector2.new(500, 740))
 local Main = Window:Tab("MAIN")
 
 local GunMods = Main:Section("GUN MODS", "Left")
@@ -5950,6 +5948,19 @@ Farm:Slider({Title = "REFILL BELOW (%)", Flag = "FarmRefillThreshold", Symbol = 
 Farm:Toggle({Title = "TOP UP BETWEEN WAVES", Flag = "FarmTopUp", State = true})
 Farm:Toggle({Title = "RESTOCK AMMO BOX", Flag = "FarmRestockBox"})
 Farm:Slider({Title = "RESTOCK BELOW (%)", Flag = "FarmRestockThreshold", Symbol = "%", Default = 20, Min = 5, Max = 50, Decimals = 1})
+
+local Weapons = Main:Section("WEAPON ORDER", "Right")
+Weapons:Dropdown({Title = "MAIN WEAPON", Flag = "FarmMainWeapon", List = {"Automatic"}, Default = "Automatic"})
+Weapons:Dropdown({Title = "BACKUP WEAPON", Flag = "FarmBackupWeapon", List = {"Automatic"}, Default = "Automatic"})
+Weapons:Toggle({Title = "RETURN TO MAIN", Flag = "FarmReturnMain", State = true})
+Library.RefreshLoadout = function(Names)
+    local Order = {"Automatic"}
+    for _, Name in ipairs(Names) do if Name ~= "Select weapon" then table.insert(Order, Name) end end
+    for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon"}) do
+        local Selected = Library.Flags[Key]
+        Library.Items[Key]:SetOptions(Order, table.find(Order, Selected) and Selected or "Automatic")
+    end
+end
 
 local Upgrade = Main:Section("AUTO UPGRADE", "Right")
 Upgrade:Toggle({Title = "AUTO UPGRADE", Flag = "UpgradeEnabled"})
@@ -5977,58 +5988,14 @@ Control:Button({Title = "START FARMING", Callback = function() if Library.Automa
 Control:Button({Title = "STOP AUTOMATION", Callback = function() if Library.Automation then Library.Automation:StopAutomation() end end})
 Control:Toggle({Title = "AUTO START ROUND", Flag = "FarmAutoReady"})
 
-local Loadout = Window:Tab("LOADOUT")
-local Weapons = Loadout:Section("WEAPON ORDER", "Left")
-Weapons:Dropdown({Title = "MAIN WEAPON", Flag = "FarmMainWeapon", List = {"Automatic"}, Default = "Automatic"})
-Weapons:Dropdown({Title = "BACKUP WEAPON", Flag = "FarmBackupWeapon", List = {"Automatic"}, Default = "Automatic"})
-Weapons:Toggle({Title = "RETURN TO MAIN", Flag = "FarmReturnMain", State = true})
-local Rates = Loadout:Section("FIRE RATE PRESETS", "Right")
-Rates:Toggle({Title = "USE WEAPON PRESETS", Flag = "GunUsePresets"})
-Library.GunRateProfiles = {}
-local EditingRate, RateSlider, LastRateName, LastRateValue
-local function RefreshRateEditor(Name)
-    if not RateSlider then return end
-    local Rate = Library.GunRateProfiles[Name] or Library.Flags.GunFireRate or 60
-    if LastRateName == Name and LastRateValue == Rate then return end
-    LastRateName = Name; LastRateValue = Rate
-    EditingRate = true
-    RateSlider:Set(Rate)
-    RateSlider:SetVisible(Name ~= "Select weapon")
-    EditingRate = false
-end
-Rates:Dropdown({Title = "PRESET WEAPON", Flag = "GunPresetWeapon", List = {"Select weapon"}, Default = "Select weapon", Callback = RefreshRateEditor})
-RateSlider = Rates:Slider({Title = "PRESET SHOTS/S", Flag = "GunPresetRate", Symbol = "", Default = 60, Min = 1, Max = 120, Decimals = 1, Callback = function(Rate)
-    local Name = Library.Flags.GunPresetWeapon
-    if not EditingRate and Name and Name ~= "Select weapon" then
-        Library.GunRateProfiles[Name] = Rate
-        if Library.Features then Library.Features:QueueRefresh() end
-    end
-end})
-Rates:Button({Title = "USE GLOBAL RATE FOR WEAPON", Callback = function()
-    Library.GunRateProfiles[Library.Flags.GunPresetWeapon] = nil
-    RefreshRateEditor(Library.Flags.GunPresetWeapon)
-    if Library.Features then Library.Features:QueueRefresh() end
-end})
-Library.RefreshLoadout = function(Names)
-    local Order = {"Automatic"}
-    for _, Name in ipairs(Names) do if Name ~= "Select weapon" then table.insert(Order, Name) end end
-    for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon"}) do
-        local Selected = Library.Flags[Key]
-        Library.Items[Key]:SetOptions(Order, table.find(Order, Selected) and Selected or "Automatic")
-    end
-    local Selected = Library.Flags.GunPresetWeapon
-    Library.Items.GunPresetWeapon:SetOptions(Names, table.find(Names, Selected) and Selected or "Select weapon")
-    RefreshRateEditor(Library.Flags.GunPresetWeapon)
-end
-RefreshRateEditor("Select weapon")
-
 local Visuals = Window:Tab("VISUALS")
 local Impact = Visuals:Section("SHOT EFFECTS", "Left")
+Impact:Slider({Title = "EFFECT INTENSITY", Flag = "VisualIntensity", Symbol = "", Default = 2, Min = 1, Max = 3, Decimals = 0.1})
 Impact:Toggle({Title = "BULLET TRACERS", Flag = "VisualTracers", State = true})
-Impact:Slider({Title = "TRACER LIFETIME", Flag = "VisualTracerTime", Symbol = "s", Default = 0.25, Min = 0.1, Max = 0.8, Decimals = 0.01})
+Impact:Slider({Title = "TRACER LIFETIME", Flag = "VisualTracerTime", Symbol = "s", Default = 0.35, Min = 0.1, Max = 0.8, Decimals = 0.01})
 Impact:Toggle({Title = "HIT CHAMS", Flag = "VisualHitChams", State = true})
 Impact:Toggle({Title = "HIT INDICATOR", Flag = "VisualHitIndicator", State = true})
-Impact:Slider({Title = "HIT FLASH DURATION", Flag = "VisualHitTime", Symbol = "s", Default = 0.3, Min = 0.1, Max = 0.8, Decimals = 0.01})
+Impact:Slider({Title = "HIT FLASH DURATION", Flag = "VisualHitTime", Symbol = "s", Default = 0.45, Min = 0.1, Max = 0.8, Decimals = 0.01})
  
 local Settings = Window:Tab("SETTINGS")
 local Menu = Settings:Section("INTERFACE", "Left")

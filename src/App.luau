@@ -2,7 +2,7 @@
 local LoadTime = tick()
 
 Library.CreateLoader("NEOPERRO", Vector2.new(300, 300))
-local Window = Library.Window("NEOPERRO | THE FINAL STAND 2", Vector2.new(500, 620))
+local Window = Library.Window("NEOPERRO | THE FINAL STAND 2", Vector2.new(500, 740))
 local Main = Window:Tab("MAIN")
 
 local GunMods = Main:Section("GUN MODS", "Left")
@@ -23,6 +23,19 @@ Farm:Slider({Title = "REFILL BELOW (%)", Flag = "FarmRefillThreshold", Symbol = 
 Farm:Toggle({Title = "TOP UP BETWEEN WAVES", Flag = "FarmTopUp", State = true})
 Farm:Toggle({Title = "RESTOCK AMMO BOX", Flag = "FarmRestockBox"})
 Farm:Slider({Title = "RESTOCK BELOW (%)", Flag = "FarmRestockThreshold", Symbol = "%", Default = 20, Min = 5, Max = 50, Decimals = 1})
+
+local Weapons = Main:Section("WEAPON ORDER", "Right")
+Weapons:Dropdown({Title = "MAIN WEAPON", Flag = "FarmMainWeapon", List = {"Automatic"}, Default = "Automatic"})
+Weapons:Dropdown({Title = "BACKUP WEAPON", Flag = "FarmBackupWeapon", List = {"Automatic"}, Default = "Automatic"})
+Weapons:Toggle({Title = "RETURN TO MAIN", Flag = "FarmReturnMain", State = true})
+Library.RefreshLoadout = function(Names)
+    local Order = {"Automatic"}
+    for _, Name in ipairs(Names) do if Name ~= "Select weapon" then table.insert(Order, Name) end end
+    for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon"}) do
+        local Selected = Library.Flags[Key]
+        Library.Items[Key]:SetOptions(Order, table.find(Order, Selected) and Selected or "Automatic")
+    end
+end
 
 local Upgrade = Main:Section("AUTO UPGRADE", "Right")
 Upgrade:Toggle({Title = "AUTO UPGRADE", Flag = "UpgradeEnabled"})
@@ -50,58 +63,14 @@ Control:Button({Title = "START FARMING", Callback = function() if Library.Automa
 Control:Button({Title = "STOP AUTOMATION", Callback = function() if Library.Automation then Library.Automation:StopAutomation() end end})
 Control:Toggle({Title = "AUTO START ROUND", Flag = "FarmAutoReady"})
 
-local Loadout = Window:Tab("LOADOUT")
-local Weapons = Loadout:Section("WEAPON ORDER", "Left")
-Weapons:Dropdown({Title = "MAIN WEAPON", Flag = "FarmMainWeapon", List = {"Automatic"}, Default = "Automatic"})
-Weapons:Dropdown({Title = "BACKUP WEAPON", Flag = "FarmBackupWeapon", List = {"Automatic"}, Default = "Automatic"})
-Weapons:Toggle({Title = "RETURN TO MAIN", Flag = "FarmReturnMain", State = true})
-local Rates = Loadout:Section("FIRE RATE PRESETS", "Right")
-Rates:Toggle({Title = "USE WEAPON PRESETS", Flag = "GunUsePresets"})
-Library.GunRateProfiles = {}
-local EditingRate, RateSlider, LastRateName, LastRateValue
-local function RefreshRateEditor(Name)
-    if not RateSlider then return end
-    local Rate = Library.GunRateProfiles[Name] or Library.Flags.GunFireRate or 60
-    if LastRateName == Name and LastRateValue == Rate then return end
-    LastRateName = Name; LastRateValue = Rate
-    EditingRate = true
-    RateSlider:Set(Rate)
-    RateSlider:SetVisible(Name ~= "Select weapon")
-    EditingRate = false
-end
-Rates:Dropdown({Title = "PRESET WEAPON", Flag = "GunPresetWeapon", List = {"Select weapon"}, Default = "Select weapon", Callback = RefreshRateEditor})
-RateSlider = Rates:Slider({Title = "PRESET SHOTS/S", Flag = "GunPresetRate", Symbol = "", Default = 60, Min = 1, Max = 120, Decimals = 1, Callback = function(Rate)
-    local Name = Library.Flags.GunPresetWeapon
-    if not EditingRate and Name and Name ~= "Select weapon" then
-        Library.GunRateProfiles[Name] = Rate
-        if Library.Features then Library.Features:QueueRefresh() end
-    end
-end})
-Rates:Button({Title = "USE GLOBAL RATE FOR WEAPON", Callback = function()
-    Library.GunRateProfiles[Library.Flags.GunPresetWeapon] = nil
-    RefreshRateEditor(Library.Flags.GunPresetWeapon)
-    if Library.Features then Library.Features:QueueRefresh() end
-end})
-Library.RefreshLoadout = function(Names)
-    local Order = {"Automatic"}
-    for _, Name in ipairs(Names) do if Name ~= "Select weapon" then table.insert(Order, Name) end end
-    for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon"}) do
-        local Selected = Library.Flags[Key]
-        Library.Items[Key]:SetOptions(Order, table.find(Order, Selected) and Selected or "Automatic")
-    end
-    local Selected = Library.Flags.GunPresetWeapon
-    Library.Items.GunPresetWeapon:SetOptions(Names, table.find(Names, Selected) and Selected or "Select weapon")
-    RefreshRateEditor(Library.Flags.GunPresetWeapon)
-end
-RefreshRateEditor("Select weapon")
-
 local Visuals = Window:Tab("VISUALS")
 local Impact = Visuals:Section("SHOT EFFECTS", "Left")
+Impact:Slider({Title = "EFFECT INTENSITY", Flag = "VisualIntensity", Symbol = "", Default = 2, Min = 1, Max = 3, Decimals = 0.1})
 Impact:Toggle({Title = "BULLET TRACERS", Flag = "VisualTracers", State = true})
-Impact:Slider({Title = "TRACER LIFETIME", Flag = "VisualTracerTime", Symbol = "s", Default = 0.25, Min = 0.1, Max = 0.8, Decimals = 0.01})
+Impact:Slider({Title = "TRACER LIFETIME", Flag = "VisualTracerTime", Symbol = "s", Default = 0.35, Min = 0.1, Max = 0.8, Decimals = 0.01})
 Impact:Toggle({Title = "HIT CHAMS", Flag = "VisualHitChams", State = true})
 Impact:Toggle({Title = "HIT INDICATOR", Flag = "VisualHitIndicator", State = true})
-Impact:Slider({Title = "HIT FLASH DURATION", Flag = "VisualHitTime", Symbol = "s", Default = 0.3, Min = 0.1, Max = 0.8, Decimals = 0.01})
+Impact:Slider({Title = "HIT FLASH DURATION", Flag = "VisualHitTime", Symbol = "s", Default = 0.45, Min = 0.1, Max = 0.8, Decimals = 0.01})
  
 local Settings = Window:Tab("SETTINGS")
 local Menu = Settings:Section("INTERFACE", "Left")

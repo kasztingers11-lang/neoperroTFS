@@ -5,8 +5,8 @@ Implemented and tested offline:
 - SMART BURSTS with actual local-shot accounting and bounded target scans.
 - Fractional reserve priority, optional supply cash reserve and swept retreat checks.
 - Permanent background/menu operation with separate physical input ownership.
-- LOADOUT main/backup preferences and return-to-main after inventory resupply.
-- Opt-in per-weapon rapid-fire rate presets with profile persistence and global fallback.
+- MAIN main/backup preferences and return-to-main after inventory resupply.
+- Global rapid-fire rate control; per-weapon presets were removed.
 - Supply-box ranking by reachable navmesh travel time and threat exposure.
 - Manual / Damage first / Headshots first ordering of existing native upgrade categories.
 

@@ -28,11 +28,11 @@ Two seconds; 60 native shots/second; 40 HP per target; 50 damage per shot; 80 ms
 | 144 | 120 | 24 | 92 / 0 | 23 / 23 |
 | 240 | 120 | 24 | 92 / 0 | 23 / 23 |
 
-The full suite runs 124 production behavioral checks plus six packaging/source checks. Trajectory checks compare the analytic minimum against dense samples for 60 deterministic scenes. Compilation and local analysis also pass. None of these establish a real-game performance gain.
+The full suite runs 126 production behavioral checks plus six packaging/source checks. Trajectory checks compare the analytic minimum against dense samples for 60 deterministic scenes. Compilation and local analysis also pass. None of these establish a real-game performance gain.
 
 ## Loadout and supply-route additions
 
 - Weapon selection compares readiness first, then main/backup preference, then loaded/reserve counts. Return-to-main waits for refill ownership and native shop work.
-- Per-weapon rates are clamped to 1–120 requested shots/second. The global rate remains the fallback and presets require explicit opt-in. Both gun modifications and cadence consume the same rate.
+- The global fire rate is clamped to 1–120 requested shots/second. Per-weapon presets were removed. Both gun modifications and cadence consume the same global rate.
 - Supply route cost is `sum(segment length / speed * (1 + 20 / max(6, swept gap)))`. A swept gap below six studs rejects the route. Prediction remains bounded/linear and cached; it is not a verified time-dependent safe path. Up to three paths per batch, two-second scheduling, four-second/ten-stud cache limits, rotating failed batches.
 - Upgrade plans reorder native categories using names, with no invented category, price or damage value. Existing native transaction checks remain authoritative.

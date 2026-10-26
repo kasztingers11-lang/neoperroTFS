@@ -51,6 +51,12 @@ def load_ui_visibility(env):
     lua.eval("function(s, e) return assert(load(s, 'production UI visibility', 't', e))() end")(method, env)
 
 
+def load_app(env):
+    source = (root / 'src' / 'App.luau').read_text(encoding='utf-8')
+    return lua.eval("function(s, e) return assert(load(s, 'production App', 't', e))() end")(source, env)
+
+
+lua.globals().LoadApp = load_app
 lua.globals().LoadUIVisibility = load_ui_visibility
 lua.globals().LoadUIInput = load_ui_input
 lua.execute((root / 'tests' / 'automation.test.lua').read_text(encoding='utf-8'))

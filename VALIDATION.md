@@ -1,6 +1,14 @@
 # Validation — 2026-10-26
 
-## Current performance and comment removal
+## Current startup, tabs and visual revision
+
+- Found a startup blocker: App called SetVisible on a slider, a method this Drawing library does not implement. That call occurred before VISUALS/SETTINGS and gameplay controller initialization. Removed the entire preset editor and preset save/load/runtime handling as requested; the global rate remains.
+- Weapon order now sits in MAIN; the tabs are MAIN, VISUALS and SETTINGS. Increased rectangular window height from 620 to 740 to accommodate MAIN controls. Original logo, dark theme and comment-free source remain.
+- Added EFFECT INTENSITY and stronger red/white tracer and hit-marker strokes, larger damage numbers and denser hit chams. Defaults use 0.35-second tracers and 0.45-second hit flashes. Existing 96-tracer/16-cham limits, render deadline and contact-ray budgets remain.
+- **126 behavioral checks and six packaging/source checks pass**, with local compile/analysis. A new regression executes the complete production App with the library's supported control methods, checks all three controller initializers and tab/control placement, and deliberately gives sliders no SetVisible method. It also verifies preset removal and ignores legacy profile flags. Visual tests verify intensity changes existing handles and preserves caps.
+- No live Roblox session was used. The startup fault is concrete; accepted damage, live mouse behavior and actual effect placement still require user verification with the rebuilt full bundle. Earlier passing factory tests did not cover this App startup path.
+
+## Previous performance and comment removal
 
 - **124 behavioral checks and six packaging/source checks pass**, with local Luau compilation and analysis. No live FPS benchmark or game injection was performed.
 - Idle controller steps skip movement/threat/task work once owned state is released, but pending refill/shop/Ready transactions still poll. Shooting-only mode avoids unused separation scans. Third-person camera writes are conditional and per-frame view records are reused. Rate-editor refreshes skip unchanged values.

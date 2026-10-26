@@ -189,18 +189,8 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         Library.Items.UpgradePriority:SetOptions(Options, Selected)
     end
     function A:RestoreSelection(Values)
-        local Profiles = {}
-        if type(Values.GunRateProfiles) == "table" then
-            local Count = 0
-            for Name, Rate in pairs(Values.GunRateProfiles) do
-                if type(Name) == "string" and #Name <= 100 and type(Rate) == "number" and Rate == Rate and math.abs(Rate) < math.huge and Count < 128 then
-                    Profiles[Name] = math.clamp(Rate, 1, 120); Count = Count + 1
-                end
-            end
-        end
-        Library.GunRateProfiles = Profiles
         self.SavedLoadout = {}
-        for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon", "GunPresetWeapon"}) do
+        for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon"}) do
             if type(Values[Key]) == "string" then self.SavedLoadout[Key] = Values[Key] end
         end
         if Guns.QueueRefresh then Guns:QueueRefresh() end
@@ -1078,7 +1068,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not A.Scanning then A.SavedWeapon = nil; A.SavedPriority = nil end
         A:ScanPriorities(); A:CancelTravel()
     end)
-    for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon", "GunPresetWeapon"}) do
+    for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon"}) do
         Own(Key, function() if A.SavedLoadout and not A.ScanningLoadout then A.SavedLoadout[Key] = nil end end)
     end
     Own("FarmCashReserve", function() A.UpgradeIdle = false; A.ReadyQuietSince = nil end)

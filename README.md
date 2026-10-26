@@ -20,11 +20,11 @@ Execute `loader.luau` in Real, or execute `dist/neoperroTFS.luau` directly. Righ
 
 The **0.01-second refill experiment failed**: reserve did not increase. Its test button and timer changes are removed. Normal auto refill retains native timing and proximity. Instant or anywhere refill is not supported. Shop upgrades and ammo refill use different native operations; an accepted purchase does not establish that the refill wait can be skipped.
 
-## Loadout and efficiency
+## Weapon order and efficiency
 
-**LOADOUT** adds MAIN WEAPON, BACKUP WEAPON and RETURN TO MAIN. Choices refresh from owned guns. Supported loaded weapons take priority over reserve-only weapons; preferences break the order within those groups. A completely dry main falls back normally. RETURN TO MAIN switches back once the main is usable and pending inventory refill/shop work is finished. Charge weapons remain manual. Automatic leaves the existing inventory ranking in place.
+MAIN contains MAIN WEAPON, BACKUP WEAPON and RETURN TO MAIN. Choices refresh from owned guns. Loaded supported weapons take priority over reserve-only guns; preferences determine order within those groups. Return-to-main waits for inventory refill and pending shop work. Automatic retains inventory-based selection.
 
-**USE WEAPON PRESETS** is opt-in. Select PRESET WEAPON and set PRESET SHOTS/S; that gun uses its saved rate while RAPID FIRE is enabled. Unconfigured guns use the global rate. USE GLOBAL RATE FOR WEAPON deletes its override. Gun mods and smart-shot cadence share the same requested rate. Profiles save the rate map and restore weapon choices when ownership arrives later. This does not establish the server's accepted firing throughput.
+Per-weapon fire-rate presets and LOADOUT were removed. The global FIRE RATE (SHOTS/S) remains; old preset flags/maps are ignored and no longer saved. MAIN, VISUALS and SETTINGS are the three tabs. The window is 500 × 740 so weapon order fits alongside the existing controls.
 
 **UPGRADE PLAN** offers Manual, Damage first and Headshots first. Plans sort existing native categories by their names: head-related names, damage / stopping power / AP rounds, then other categories. Headshots first falls back to a damage category if no head category exists. Selected-only upgrades one matching category; All upgrades orders every real category. Without a matching category, selected-only does not buy an unrelated upgrade. Native prices, permissions, cash reserve and confirmation still govern purchases; plans do not enable AUTO UPGRADE or spending themselves.
 
@@ -44,11 +44,11 @@ The menu releases the cursor; hold right mouse outside the UI to rotate the nati
 
 The visuals tab has three independent effects, enabled by default:
 
-- **Bullet tracers:** red glow with a white core, using native local shot rays; adjustable lifetime.
+- **Bullet tracers:** red glow with a white core, using native local shot rays; adjustable lifetime, with a wider glow and brighter core.
 - **Hit chams:** short client-only red/white flashes on zombie shot contact. Native visual rays omit zombie references, so a bounded local ray reconstruction resolves contact while respecting intervening geometry. Occluded highlights, not through-wall overlays. Local contact is not separate server confirmation of target damage.
 - **Hit indicator:** fading marker and damage number projected at the recent zombie shot contact from native server hit/damage notifications. Positive ReturnServerDamage also triggers the marker because ordinary hits do not necessarily emit RemoteHitmarker; adjustable flash duration.
 
-Effects stay visible when the menu is hidden. Tracers are pooled (maximum 96 segments), chams capped at 16, and all effects clean up on unload. Round stats, its controls, counters and HUD have been removed.
+EFFECT INTENSITY (1–3, default 2) adjusts tracer/marker thickness and damage-text size. Default tracer lifetime is 0.35 seconds and hit flash is 0.45 seconds. Effects stay visible when the menu is hidden. Tracers are pooled (maximum 96 segments), chams capped at 16, and all effects clean up on unload. Round stats, its controls, counters and HUD have been removed.
 
 ## Feature binds
 
@@ -60,7 +60,7 @@ Unassigned keys never match mouse `Unknown` key codes. Feature shortcuts run onl
 
 `src/Library.luau` renders the UI; `Features` manages gun changes; `Automation` coordinates gameplay; `Navigation`, `AmmoAdapter` and `ShopAdapter` wrap native movement, refill and shop interactions; `Visuals` owns shot effects. Native closure layouts are guarded against the inspected game v312. Native firing packets are not rewritten.
 
-Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for six packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 124 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
+Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for six packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 126 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
 
 Target acquisition uses squared distances and at most eight visibility rays per throttled search, with fair revisits to blocked candidates. Retreat checks closest approach along movement segments, not just endpoint distance, and nearby threats dominate separation steering. Refill selection ranks reserve fractions using real capacities; its safety gap considers each zombie's speed and distance separately. Charge weapons retain their native firing type under RAPID FIRE. See [MATH_REVIEW.md](MATH_REVIEW.md) for the offline audit and simulation limits.
 
@@ -84,4 +84,4 @@ Upload `dist/neoperroTFS.luau` as the full unobfuscated script. It includes all 
 
 Luau source modules, loader and generated bundle contain no comments. The build strips future Luau comments while preserving quoted/long strings and the exact logo bytes. The script remains readable and unobfuscated. Attribution stays in this README.
 
-Idle automation now skips gameplay work after releasing owned state, while pending native transactions continue to poll. Shooting without retreat avoids unused crowd-separation scans. Stable third-person camera settings avoid repeated property writes, the view record is reused between frames, and unchanged rate-editor refreshes are skipped. These are bounded-work reductions, not a measured FPS guarantee.
+Idle automation now skips gameplay work after releasing owned state, while pending native transactions continue to poll. Shooting without retreat avoids unused crowd-separation scans. Stable third-person camera settings avoid repeated property writes, the view record is reused between frames, and removed preset-editor work no longer runs. These are bounded-work reductions, not a measured FPS guarantee.

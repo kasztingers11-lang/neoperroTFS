@@ -12,6 +12,15 @@ return function(Library: any, Window: any)
     local White = Color3.fromRGB(255, 237, 241)
     local RenderName = "NeoperroHitVisuals"
     local function Finite(N) return type(N) == "number" and N == N and math.abs(N) < math.huge end
+    function V:Intensity()
+        return math.clamp(Finite(Flags.VisualIntensity) and Flags.VisualIntensity or 2, 1, 3)
+    end
+    function V:ApplyStyle()
+        local Scale = self:Intensity()
+        for _, T in ipairs(self.Tracers) do T.Glow.Thickness = 7 + Scale * 2; T.Core.Thickness = 2 + Scale * 0.5 end
+        for _, Lines in ipairs(self.HitLines or {}) do Lines.Glow.Thickness = 6 + Scale * 2; Lines.Core.Thickness = 2 + Scale * 0.5 end
+        if self.DamageText then self.DamageText.Size = 20 + Scale * 3 end
+    end
     local function Duration(Key, Default)
         local N = Flags[Key]
         return math.clamp(Finite(N) and N or Default, 0.1, 0.8)
@@ -63,7 +72,7 @@ return function(Library: any, Window: any)
         end
         local H = Instance.new("Highlight")
         H.Name = "HitFlash"; H.Adornee = Model; H.FillColor = Red; H.OutlineColor = White
-        H.FillTransparency = 0.2; H.OutlineTransparency = 0; H.DepthMode = Enum.HighlightDepthMode.Occluded
+        H.FillTransparency = 0.08; H.OutlineTransparency = 0; H.DepthMode = Enum.HighlightDepthMode.Occluded
         H.Parent = self.Folder
         self.Chams[Model] = {Object = H, At = os.clock()}
     end
@@ -72,8 +81,8 @@ return function(Library: any, Window: any)
         local Record
         for _, T in ipairs(self.Tracers) do if not T.Active then Record = T; break end end
         if not Record and #self.Tracers < 96 then
-            Record = {Glow = DrawingObject("Line", {Color = Red, Thickness = 7, ZIndex = 3}),
-                Core = DrawingObject("Line", {Color = White, Thickness = 2, ZIndex = 4})}
+            Record = {Glow = DrawingObject("Line", {Color = Red, Thickness = 7 + self:Intensity() * 2, ZIndex = 3}),
+                Core = DrawingObject("Line", {Color = White, Thickness = 2 + self:Intensity() * 0.5, ZIndex = 4})}
             table.insert(self.Tracers, Record)
         end
         if not Record then
@@ -150,10 +159,10 @@ return function(Library: any, Window: any)
         if self.HitLines then return end
         self.HitLines = {}
         for I = 1, 4 do
-            self.HitLines[I] = {Glow = DrawingObject("Line", {Color = Red, Thickness = 6, ZIndex = 7}),
-                Core = DrawingObject("Line", {Color = White, Thickness = 2, ZIndex = 8})}
+            self.HitLines[I] = {Glow = DrawingObject("Line", {Color = Red, Thickness = 6 + self:Intensity() * 2, ZIndex = 7}),
+                Core = DrawingObject("Line", {Color = White, Thickness = 2 + self:Intensity() * 0.5, ZIndex = 8})}
         end
-        self.DamageText = DrawingObject("Text", {Color = White, Font = Drawing.Fonts.System, Size = 20, Center = true, Outline = true, ZIndex = 8})
+        self.DamageText = DrawingObject("Text", {Color = White, Font = Drawing.Fonts.System, Size = 20 + self:Intensity() * 3, Center = true, Outline = true, ZIndex = 8})
     end
     function V:Render()
         if not self.Alive then return end
@@ -161,7 +170,7 @@ return function(Library: any, Window: any)
         local Now = os.clock()
         for _, T in ipairs(self.Tracers) do
             if T.Active then
-            local Alpha = 1 - (Now - (T.At or -10)) / Duration("VisualTracerTime", 0.25)
+            local Alpha = 1 - (Now - (T.At or -10)) / Duration("VisualTracerTime", 0.35)
             local Visible = T.Active and Flags.VisualTracers and Camera and Alpha > 0
             if Visible then
                 local X = Camera:WorldToViewportPoint(T.Start)
@@ -170,7 +179,7 @@ return function(Library: any, Window: any)
                 if Visible then
                     T.Glow.From = Vector2.new(X.X, X.Y); T.Glow.To = Vector2.new(Y.X, Y.Y)
                     T.Core.From = T.Glow.From; T.Core.To = T.Glow.To
-                    T.Glow.Transparency = Alpha * 0.45; T.Core.Transparency = Alpha
+                    T.Glow.Transparency = Alpha * 0.75; T.Core.Transparency = Alpha
                 end
             end
             T.Glow.Visible = Visible == true; T.Core.Visible = Visible == true
@@ -178,14 +187,14 @@ return function(Library: any, Window: any)
             end
         end
         for Model, Record in pairs(self.Chams) do
-            local Alpha = (Now - Record.At) / Duration("VisualHitTime", 0.3)
+            local Alpha = (Now - Record.At) / Duration("VisualHitTime", 0.45)
             if not Flags.VisualHitChams or not Model.Parent or Alpha >= 1 then
                 Destroy(Record.Object); self.Chams[Model] = nil
-            else Record.Object.FillTransparency = 0.2 + Alpha * 0.8; Record.Object.OutlineTransparency = Alpha end
+            else Record.Object.FillTransparency = 0.08 + Alpha * 0.92; Record.Object.OutlineTransparency = Alpha end
         end
         if Flags.VisualHitIndicator then self:HitDrawings() end
         if self.HitLines then
-            local Alpha = 1 - (Now - self.LastHit) / Duration("VisualHitTime", 0.3)
+            local Alpha = 1 - (Now - self.LastHit) / Duration("VisualHitTime", 0.45)
             local Contact = self.HitContact
             local Point = Contact and Contact.Position
             local Head = Contact and Contact.Model and Contact.Model:FindFirstChild("Head")
@@ -199,11 +208,12 @@ return function(Library: any, Window: any)
                     local SX = (I == 1 or I == 4) and -1 or 1
                     local SY = I <= 2 and -1 or 1
                     local X, Y = Screen.X, Screen.Y
-                    local Offset = 7 + (1 - Alpha) * 5
+                    local Scale = self:Intensity()
+                    local Offset = 8 + Scale + (1 - Alpha) * 6
                     Lines.Glow.From = Vector2.new(X + SX * Offset, Y + SY * Offset)
-                    Lines.Glow.To = Vector2.new(X + SX * (Offset + 12), Y + SY * (Offset + 12))
+                    Lines.Glow.To = Vector2.new(X + SX * (Offset + 12 + Scale * 3), Y + SY * (Offset + 12 + Scale * 3))
                     Lines.Core.From = Lines.Glow.From; Lines.Core.To = Lines.Glow.To
-                    Lines.Glow.Transparency = Alpha * 0.5; Lines.Core.Transparency = Alpha
+                    Lines.Glow.Transparency = Alpha * 0.8; Lines.Core.Transparency = Alpha
                 end
             end
             local DamageAlpha = 1 - (Now - self.DamageAt) / 0.6
@@ -252,11 +262,11 @@ return function(Library: any, Window: any)
     local Damage = Remotes and Remotes:FindFirstChild("ReturnServerDamage")
     if Hit then Connect(Hit.OnClientEvent, function() V:OnHit() end) end
     if Damage then Connect(Damage.OnClientEvent, function(Amount) V:OnDamage(Amount) end) end
-    for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator"}) do
+    for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator", "VisualIntensity"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback
-            local Owned = function(Value) Previous(Value); if V.Alive then V:Refresh() end end
+            local Owned = function(Value) Previous(Value); if V.Alive then V:ApplyStyle(); V:Refresh() end end
             V.Callbacks[Item] = {Previous = Previous, Owned = Owned}; Item.Callback = Owned
         end
     end

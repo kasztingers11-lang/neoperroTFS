@@ -161,7 +161,7 @@ local function setup(native)
     local lib={Flags=flags,Items={},WindowVisible=false}
     function lib:ChangeVisible(v) self.WindowVisible=v end
     local keys={"UpgradeWeapon","UpgradePriority","UpgradeMode","UpgradeEnabled","UpgradeShopFallback","FarmAutoShoot","FarmRestockBox","FarmBackground","FarmAutoReady",
-        "FarmMainWeapon","FarmBackupWeapon","GunPresetWeapon","GunUsePresets","UpgradePlan","FarmReturnMain","FarmKeepDistance","FarmUseSprint","FarmShowDistance","FarmShowCircle","FarmAutoRefill","CameraThirdPerson","CameraDistance"}
+        "FarmMainWeapon","FarmBackupWeapon","UpgradePlan","FarmReturnMain","FarmKeepDistance","FarmUseSprint","FarmShowDistance","FarmShowCircle","FarmAutoRefill","CameraThirdPerson","CameraDistance"}
     for _,key in ipairs(keys) do
         local item={Callback=function() end,List={}}
         function item:Set(v) flags[key]=v; self.Callback(v) end
@@ -1295,26 +1295,24 @@ test("preferred main returns after reserve refill without switching during inter
     c.Lib.Flags.FarmReturnMain=false;eq(c.Lib.Flags.FarmAutoShoot,true)
 end)
 
-test("loadout preferences restore when ownership arrives later and rate maps validate",function()
+test("weapon preferences restore later and removed rate maps are ignored",function()
     local c=setup();c.A:RestoreSelection({FarmMainWeapon="Late",FarmBackupWeapon="Second",GunRateProfiles={Late=25,Bad=0/0,High=900}})
-    eq(c.Lib.GunRateProfiles.Late,25);eq(c.Lib.GunRateProfiles.Bad,nil);eq(c.Lib.GunRateProfiles.High,120)
+    eq(c.Lib.GunRateProfiles,nil)
     c.Weapon("Late");c.A:ScanInventory();eq(c.Lib.Flags.FarmMainWeapon,"Late");eq(c.A.SavedLoadout.FarmBackupWeapon,"Second")
     c.Lib.Items.FarmBackupWeapon:Set("Automatic");c.Weapon("Second");c.A:ScanInventory();eq(c.Lib.Flags.FarmBackupWeapon,"Automatic")
 end)
 
-test("per weapon fire rates apply consistently and fall back to global",function()
+test("global fire rate ignores removed preset flags and restores native rate",function()
     local c=setup();c.A:Destroy();local x=c.Weapon("X");local y=c.Weapon("Y")
     c.Lib.Flags.GunRapidFire=true;c.Lib.Flags.GunUsePresets=true;c.Lib.Flags.GunFireRate=60;c.Lib.GunRateProfiles={X=17}
     local g=GunFactory(c.Lib,{SendNotification=function()end})
-    eq(g:RequestedRate(x),17);eq(x.CurrentValues.AttackSpeed.Value,1020);eq(y.CurrentValues.AttackSpeed.Value,3600)
-    c.Lib.Flags.GunUsePresets=false;g:ApplyTool(x);eq(x.CurrentValues.AttackSpeed.Value,3600)
-    c.Lib.Flags.GunUsePresets=true;c.Lib.GunRateProfiles.X=0/0;eq(g:RequestedRate(x),60)
+    eq(g:RequestedRate(x),60);eq(x.CurrentValues.AttackSpeed.Value,3600);eq(y.CurrentValues.AttackSpeed.Value,3600)
+    c.Lib.Flags.GunFireRate=17;g:ApplyTool(x);eq(x.CurrentValues.AttackSpeed.Value,1020)
     g:Destroy();eq(x.CurrentValues.AttackSpeed.Value,300)
 end)
 
-test("smart shot interval uses the same selected weapon preset as gun mods",function()
-    local c=setup();local t=c.Weapon("X");c.Lib.Flags.GunRapidFire=true
-    c.Guns.RequestedRate=function(_,tool)eq(tool,t);return 17 end
+test("smart shot interval follows the global rapid fire rate",function()
+    local c=setup();local t=c.Weapon("X");c.Lib.Flags.GunRapidFire=true;c.Lib.Flags.GunFireRate=17
     local b=c.Guns:BindWeapon(t);b.Environment.LAS=7200
     assert(math.abs(c.A:FireInterval(t,b)-1/17)<0.00001)
 end)
@@ -1394,6 +1392,51 @@ test("third person reuses the view record across rendered frames",function()
     local c=setup();local z=c.Zombie("A",15,0);c.Lib.Items.CameraThirdPerson:Set(true)
     c.A:Aim(c.World.CurrentCamera,c.Root,z);local record=c.A.SavedView;c.A:RestoreView()
     c.A:Aim(c.World.CurrentCamera,c.Root,z);eq(c.A.SavedView,record);c.A:RestoreView();eq(c.A.SavedView,nil)
+end)
+
+test("App initializes gameplay and all three tabs without unsupported slider methods",function()
+    local lib={Flags={},Items={},Utility={},Tabs={}};local initialized=0
+    local window={Tabs=lib.Tabs,SendNotification=function()end}
+    function window:Tab(name)
+        local tab={Name=name,Sections={}};table.insert(self.Tabs,tab)
+        function tab:Section(title,side)
+            local section={Title=title,Side=side,Tab=self,Buttons={}};table.insert(self.Sections,section)
+            local function control(kind,opts)
+                local item={TypeOf=kind,List=opts.List,Callback=opts.Callback or function()end,Section=section}
+                function item:Set(v)lib.Flags[opts.Flag]=v;self.Callback(v)end
+                function item:SetOptions(list,v)self.List=list;self:Set(v)end
+                if kind=="Dropdown" then function item:SetVisible(v)self.Visible=v end end
+                if opts.Flag then lib.Items[opts.Flag]=item;item:Set(opts.State or opts.Default or false)end
+                return item
+            end
+            function section:Toggle(o)return control("Toggle",o)end
+            function section:Slider(o)return control("Slider",o)end
+            function section:Dropdown(o)return control("Dropdown",o)end
+            function section:Button(o)table.insert(self.Buttons,o);return o end
+            return section
+        end
+        return tab
+    end
+    function window:SwitchTab(tab)self.Selected=tab end
+    lib.Window=function(_,size)window.Size=size;return window end
+    lib.CreateLoader=function()end;lib.SetMenuMouseCapture=function()end;lib.SetBindListVisible=function()end
+    local function factory()initialized=initialized+1;return {}end
+    local env=setmetatable({Library=lib,tick=function()return 100 end,CreateFeatures=factory,CreateAutomation=factory,CreateVisuals=factory}, {__index=_G})
+    eq(LoadApp(env),lib);eq(initialized,3);eq(#lib.Tabs,3)
+    eq(lib.Tabs[1].Name,"MAIN");eq(lib.Tabs[2].Name,"VISUALS");eq(lib.Tabs[3].Name,"SETTINGS")
+    eq(lib.Items.FarmMainWeapon.Section.Tab.Name,"MAIN");eq(lib.Items.FarmBackupWeapon.Section.Tab.Name,"MAIN")
+    eq(lib.Items.GunUsePresets,nil);eq(lib.Items.GunPresetWeapon,nil);eq(lib.Items.GunPresetRate,nil)
+    assert(lib.MenuKeyButton and lib.SaveButton and lib.LoadButton and lib.Visuals and lib.Automation)
+    lib.RefreshLoadout({"Select weapon","Pistol"});eq(lib.Items.FarmMainWeapon.List[2],"Pistol")
+end)
+
+test("strong hit effects scale existing pooled handles without increasing caps",function()
+    local c=visualFixture();c.Lib.Flags.VisualIntensity=3
+    c.V:AddTracer(Vector3.zero,Vector3.new(10,0,0));c.V:HitDrawings();c.V:ApplyStyle()
+    eq(c.V.Tracers[1].Glow.Thickness,13);eq(c.V.HitLines[1].Glow.Thickness,12);eq(c.V.DamageText.Size,29)
+    c.Lib.Flags.VisualIntensity=1;c.V:ApplyStyle();eq(c.V.Tracers[1].Glow.Thickness,9)
+    for i=1,110 do c.V:AddTracer(Vector3.zero,Vector3.new(10,0,0))end
+    eq(#c.V.Tracers,96);c.V:Destroy()
 end)
 
 print(string.format("%d passed, %d failed",passed,failed))

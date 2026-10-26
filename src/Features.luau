@@ -24,10 +24,8 @@ return function(Library: any, Window: any)
         for _, Key in ipairs(Keys) do if Flags[Key] == true then return true end end
         return false
     end
-    function F:RequestedRate(Tool)
-        local Saved = Flags.GunUsePresets and Library.GunRateProfiles and Tool and Library.GunRateProfiles[Tool.Name]
-        local Rate = tonumber(Saved)
-        if not Rate or Rate ~= Rate or math.abs(Rate) == math.huge then Rate = tonumber(Flags.GunFireRate) end
+    function F:RequestedRate()
+        local Rate = tonumber(Flags.GunFireRate)
         if not Rate or Rate ~= Rate or math.abs(Rate) == math.huge then Rate = 60 end
         return math.clamp(Rate, 1, 120)
     end
@@ -246,7 +244,7 @@ return function(Library: any, Window: any)
     Connect(P.ChildAdded, function(Child)
         if Child:IsA("Backpack") then F:WatchInventory(Child, "BackpackConnections") end
     end)
-    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "GunUsePresets", "FarmAutoShoot"}) do
+    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "FarmAutoShoot"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback
