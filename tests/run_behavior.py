@@ -44,5 +44,13 @@ def load_ui_input(env):
     lua.eval("function(s, e) return assert(load(s, 'production UI input', 't', e))() end")('\n'.join(methods), env)
 
 
+def load_ui_visibility(env):
+    source = (root / 'src' / 'Library.luau').read_text(encoding='utf-8')
+    first = source.index('    function Library:ChangeVisible(State)')
+    method = source[first:source.index('    function Library:UpdateTheme(Config)', first)]
+    lua.eval("function(s, e) return assert(load(s, 'production UI visibility', 't', e))() end")(method, env)
+
+
+lua.globals().LoadUIVisibility = load_ui_visibility
 lua.globals().LoadUIInput = load_ui_input
 lua.execute((root / 'tests' / 'automation.test.lua').read_text(encoding='utf-8'))

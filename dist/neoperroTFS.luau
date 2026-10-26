@@ -572,9 +572,10 @@ do
     function Library:ChangeVisible(State)
         Library.WindowVisible = State
         Library:SetMenuMouseCapture(State)
-        if State and Library.Automation then
-            Library.Automation:ReleaseAim(); Library.Automation:StopMovement()
-            Library.Automation:CancelTravel(); Library.Automation.Navigation:Reset()
+        if Library.Automation then
+            -- Hand physical input back without discarding targets, routes or transactions.
+            Library.Automation:ReleaseMouse(); Library.Automation:Sprint(false)
+            Library.Automation:RestoreView()
         end
         UserInput.MouseIconEnabled = true
         if not State and Library.WindowInstance then Library.WindowInstance:ClosePopups() end
@@ -3587,9 +3588,8 @@ return function(Library: any, Window: any)
     local Run = game:GetService("RunService")
     local Input = game:GetService("UserInputService")
     local F: any = {Alive = true, Connections = {}, Weapons = {}, Values = {},
-        Retries = {}, Callbacks = {}, Notices = {}, LastApply = 0, FocusPaused = not isrbxactive()}
+        Retries = {}, Callbacks = {}, Notices = {}, LastApply = 0}
     local Flags = Library.Flags
-    local function Paused() return Flags.FarmBackground ~= true and (F.FocusPaused or not isrbxactive()) end
     local Keys = {"GunRapidFire", "GunNoSpread", "GunNoRecoil", "FarmAutoShoot"}
     local function Notify(Key, Message)
         if F.Notices[Key] == Message then return end
@@ -3605,7 +3605,6 @@ return function(Library: any, Window: any)
         pcall(function() Connection:Disconnect() end)
     end
     local function NeedUpdates()
-        if Paused() then return false end
         for _, Key in ipairs(Keys) do if Flags[Key] == true then return true end end
         return false
     end
@@ -3689,7 +3688,7 @@ return function(Library: any, Window: any)
             local Recoil = B.Recoil
             B.RecoilProxy = setmetatable({}, {__index = Recoil})
             function B.RecoilProxy:AddRecoil(...)
-                if Flags.GunNoRecoil ~= true or F.Suspended or Paused() then return Recoil.AddRecoil(Recoil, ...) end
+                if Flags.GunNoRecoil ~= true or F.Suspended then return Recoil.AddRecoil(Recoil, ...) end
                 return nil
             end
             debug.setupvalue(Fire, B.RecoilIndex, B.RecoilProxy)
@@ -3705,11 +3704,11 @@ return function(Library: any, Window: any)
         return B
     end
     function F:ApplyTool(Tool)
-        local BindingNeed = not Paused() and (Flags.GunNoSpread == true or Flags.GunNoRecoil == true or Flags.FarmAutoShoot == true)
+        local BindingNeed = (Flags.GunNoSpread == true or Flags.GunNoRecoil == true or Flags.FarmAutoShoot == true)
         local B = BindingNeed and self:BindWeapon(Tool) or self.Weapons[Tool]
         local V = Tool:FindFirstChild("CurrentValues")
         if not V then return end
-        local Suspended = self.Suspended or Paused()
+        local Suspended = self.Suspended
         local TypeValue = V:FindFirstChild("FireType")
         local TypeRecord = TypeValue and self.Values[TypeValue]
         local NativeType = TypeRecord and (TypeValue.Value ~= TypeRecord.Applied and TypeValue.Value or TypeRecord.Original) or TypeValue and TypeValue.Value
@@ -3829,9 +3828,7 @@ return function(Library: any, Window: any)
     Connect(P.ChildAdded, function(Child)
         if Child:IsA("Backpack") then F:WatchInventory(Child, "BackpackConnections") end
     end)
-    Connect(Input.WindowFocusReleased, function() F.FocusPaused = true; F:Refresh() end)
-    Connect(Input.WindowFocused, function() F.FocusPaused = false; F:Refresh() end)
-    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "FarmAutoShoot", "FarmBackground"}) do
+    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "FarmAutoShoot"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback
@@ -4564,8 +4561,10 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     function A:NativeFocused()
         return self.WindowFocused ~= false and isrbxactive() == true
     end
-    function A:Focused()
-        return (self:NativeFocused() or Flags.FarmBackground == true) and Input:GetFocusedTextBox() == nil
+    -- Automation lifetime and physical input ownership are separate. Menus do not stop native work.
+    function A:Focused() return self.Alive and not self.Failed end
+    function A:InputAvailable()
+        return self:NativeFocused() and Input:GetFocusedTextBox() == nil
             and not Library.WindowVisible and not Library.CapturingMenuKey and not GuiService.MenuIsOpen
     end
     function A:ReleaseMouse()
@@ -4584,6 +4583,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         self.MouseMode = nil
     end
     function A:Sprint(State)
+        if not self:InputAvailable() then State = false end
         if State then
             local Values = P:FindFirstChild("PlayerValues")
             local Current = Values and Values:FindFirstChild("Stamina")
@@ -4605,7 +4605,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
     end
     function A:ManualMovement()
-        if not self:NativeFocused() then return false end
+        if not self:InputAvailable() then return false end
         for _, Key in ipairs({Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
             Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right}) do
             if Input:IsKeyDown(Key) then self.ManualUntil = os.clock() + 0.25; return true end
@@ -4949,7 +4949,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local FireType = Value(Tool, "FireType", "Single")
         if FireType == "Charge" then self:ReleaseMouse(); Status("FarmStatus", "Charge weapons need manual fire"); return end
         if not self:BurstGate(Tool, B) then self:ReleaseMouse(); return end
-        local Native = not self:NativeFocused() and Flags.FarmBackground == true
+        local Native = not self:InputAvailable()
         if Native and type(B.Environment.mouse1Down) ~= "boolean" then
             self:ReleaseMouse(); Status("FarmStatus", "Background fire unavailable"); return
         end
@@ -5466,9 +5466,6 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     Own("FarmAutoShoot", function(V) if not V then A:ReleaseAim() end end)
     Own("FarmKeepDistance", function(V) if not V then A:StopMovement(); A.Navigation:Reset() end end)
     Own("FarmAutoRefill", function(V) if not V and A.TravelPurpose == "ammo" then A:CancelTravel() end end)
-    Own("FarmBackground", function()
-        A:ReleaseAim(); A:StopMovement(); A:CancelTravel(); A.Navigation:Reset(); Guns:Refresh()
-    end)
     Own("FarmRestockBox", function(V) if not V and not Flags.UpgradeEnabled then A:CancelTravel() end end)
     Own("FarmUseSprint", function(V) if not V then A:Sprint(false) end end)
     Own("FarmShowCircle", function() A:HideVisuals() end)
@@ -5480,7 +5477,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end)
     Connect(Input.WindowFocusReleased, function()
         A.WindowFocused = false
-        A:ReleaseAim(); A:StopMovement(); A:CancelTravel(); A.Navigation:Reset(); A:CameraState()
+        A:ReleaseMouse(); A:Sprint(false); A:RestoreView(); A:CameraState()
     end)
     Connect(Input.WindowFocused, function()
         A.WindowFocused = true
@@ -5503,7 +5500,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local K = Event.KeyCode
         if K == Enum.KeyCode.W or K == Enum.KeyCode.A or K == Enum.KeyCode.S or K == Enum.KeyCode.D
             or K == Enum.KeyCode.Up or K == Enum.KeyCode.Down or K == Enum.KeyCode.Left or K == Enum.KeyCode.Right then
-            if A:NativeFocused() then
+            if A:InputAvailable() then
                 A.ManualUntil = os.clock() + 0.25
                 A:StopMovement(); A:CancelTravel(); A.Navigation:Reset()
             end
@@ -5846,7 +5843,6 @@ Camera:Slider({Title = "CAMERA DISTANCE", Flag = "CameraDistance", Symbol = "", 
 local Control = Main:Section("CONTROL", "Right")
 Control:Button({Title = "START FARMING", Callback = function() if Library.Automation then Library.Automation:StartFarm() end end})
 Control:Button({Title = "STOP AUTOMATION", Callback = function() if Library.Automation then Library.Automation:StopAutomation() end end})
-Control:Toggle({Title = "RUN WHILE UNFOCUSED", Flag = "FarmBackground"})
 Control:Toggle({Title = "AUTO START ROUND", Flag = "FarmAutoReady"})
 
 local Visuals = Window:Tab("VISUALS")

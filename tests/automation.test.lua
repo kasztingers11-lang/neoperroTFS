@@ -318,18 +318,17 @@ test("head target stays until death, then switches, and respects range and walls
     c.World.Ray=function() return {Instance=wall} end
     eq(c.A:SelectTarget(c.Root.Position,100),nil)
 end)
-test("pre-fire head aim compensates free cursor and releases on death/menu/focus",function()
+test("menu switches owned fire to native latch while maintaining head aim",function()
     local c=setup(); local t=c.Weapon("Pistol",c.P.Character); local z=c.Zombie("A",8,0)
-    c.Guns:BindWeapon(t); c.Lib.Items.FarmAutoShoot:Set(true); c.A:SnapshotZombies()
-    c.Mouse.X=120; c.Mouse.Y=710
-    c.A:PreRender(); eq(Presses,1); eq(c.A.LastAimPoint,z.Head.Position)
-    assert(c.A.AimError<0.001); eq(c.Input.MouseBehavior,"Default")
-    c.Lib.WindowVisible=true; c.A:PreRender(); eq(Releases,1)
-    c.Lib.WindowVisible=false; Now=Now+1; c.A:PreRender(); eq(Presses,2)
-    Active=false; c.Input.WindowFocusReleased:Fire(); eq(Releases,1)
-    Active=true; c.Input.WindowFocused:Fire(); eq(Releases,2)
-    z.Humanoid.Health=0; c.A:PreRender(); eq(c.A.Target,nil)
+    local b=c.Guns:BindWeapon(t); c.Lib.Items.FarmAutoShoot:Set(true); c.A:SnapshotZombies()
+    c.Mouse.X=120;c.Mouse.Y=710;c.A:PreRender();eq(Presses,1);assert(c.A.AimError<0.001)
+    c.Lib.WindowVisible=true;Now=Now+1;c.A:PreRender();eq(Releases,1)
+    eq(Presses,1);eq(b.Environment.mouse1Down,true);eq(c.A.MouseMode,"native")
+    eq(c.A.LastAimPoint,z.Head.Position);eq(c.Input.MouseBehavior,"Default")
+    c.Lib.WindowVisible=false;Now=Now+1;c.A:PreRender();eq(b.Environment.mouse1Down,false);eq(Presses,2)
+    z.Humanoid.Health=0;c.A:PreRender();eq(c.A.Target,nil)
 end)
+
 test("manual mouse is not owned and unload completes an unfocused owned release",function()
     local c=setup(); local t=c.Weapon("Pistol",c.P.Character); c.Zombie("A",8,0)
     c.Guns:BindWeapon(t); c.Lib.Items.FarmAutoShoot:Set(true); c.A:SnapshotZombies()
@@ -338,27 +337,25 @@ test("manual mouse is not owned and unload completes an unfocused owned release"
     Active=false; c.A:Destroy(); Active=true; c.Input.WindowFocused:Fire(); eq(Releases,1)
 end)
 
-test("focus-loss event blocks automation even when executor focus status remains stale",function()
-    local c=setup(); c.Weapon("Pistol",c.P.Character); c.Zombie("Target",8,0)
-    c.Lib.Flags.FarmAutoShoot=true; c.Lib.Flags.FarmKeepDistance=true
-    c.Lib.Items.CameraThirdPerson:Set(true); c.A:SnapshotZombies(); c.A:PreRender(1/240)
-    eq(Presses,1); c.A:Kite(c.H,c.Root); assert(c.A.MoveDirection)
-    c.Input.WindowFocusReleased:Fire(); eq(Active,true); eq(c.A:Focused(),false)
-    eq(c.A.MoveDirection,nil); eq(c.A.Navigation.Active,false); eq(c.P.CameraMode,"FirstPerson")
-    c.A:Step(); c.A:PreRender(1/240); eq(Presses,1); eq(c.Shop.Calls,0)
-    c.Input.WindowFocused:Fire(); eq(c.A:Focused(),true); eq(c.P.CameraMode,"Classic")
+test("focus loss preserves route work and enables native firing even with stale focus API",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);c.Zombie("Target",8,0)
+    local b=c.Guns:BindWeapon(t);c.Lib.Flags.FarmAutoShoot=true;c.Lib.Flags.FarmKeepDistance=true
+    c.A:SnapshotZombies();c.A:PreRender(1/240);eq(Presses,1);c.A:Kite(c.H,c.Root)
+    local direction=c.A.MoveDirection;assert(direction)
+    c.Input.WindowFocusReleased:Fire();eq(Active,true);eq(c.A:Focused(),true);eq(c.A:InputAvailable(),false)
+    eq(c.A.MoveDirection,direction);Now=Now+1;c.A:PreRender(1/240)
+    eq(Presses,1);eq(b.Environment.mouse1Down,true);eq(c.A.MouseMode,"native")
+    c.Input.WindowFocused:Fire();eq(c.A:InputAvailable(),true)
 end)
 
-test("background mode drives the native gun latch without OS mouse or Shift input",function()
-    local c=setup(); local t=c.Weapon("Pistol",c.P.Character); c.Zombie("Target",8,0)
-    local b=c.Guns:BindWeapon(t); c.Lib.Items.FarmBackground:Set(true)
-    c.Lib.Flags.FarmAutoShoot=true; c.A:SnapshotZombies()
-    Active=false; c.Input.WindowFocusReleased:Fire(); c.Input.PhysicalMouse=true
-    c.A:PreRender(1/240); eq(c.A:Focused(),true); eq(Presses,0)
-    eq(b.Environment.mouse1Down,true); eq(c.A.MouseMode,"native")
-    c.A:Sprint(true); eq(ShiftPresses,0)
-    c.A:ReleaseAim(); eq(b.Environment.mouse1Down,false); eq(Releases,0)
-    c.Lib.Items.FarmBackground:Set(false); eq(c.A:Focused(),false)
+test("permanent background operation ignores legacy disabled profile flag",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);c.Zombie("Target",8,0)
+    local b=c.Guns:BindWeapon(t);c.Lib.Flags.FarmBackground=false
+    c.Lib.Flags.FarmAutoShoot=true;c.A:SnapshotZombies();Active=false;c.Input.WindowFocusReleased:Fire()
+    c.Input.PhysicalMouse=true;c.A:PreRender(1/240);eq(c.A:Focused(),true);eq(Presses,0)
+    eq(b.Environment.mouse1Down,true);c.A:Sprint(true);eq(ShiftPresses,0)
+    c.A:ReleaseAim();eq(b.Environment.mouse1Down,false);eq(Releases,0)
+    c.Lib.Items.FarmBackground:Set(false);eq(c.A:Focused(),true)
 end)
 
 test("start farming discovers the equipped upgrade and stop releases every automatic action",function()
@@ -563,8 +560,8 @@ test("real gun controller suspension restores native values and keeps native upg
     up[1]:AddRecoil(); eq(recoil.Count,1)
     v.AttackSpeed.Value=400; v.Spread.Value=1.5
     guns:SetSuspended(false); eq(v.AttackSpeed.Value,3600)
-    c.Input.WindowFocusReleased:Fire(); eq(v.AttackSpeed.Value,400); eq(v.Spread.Value,1.5)
-    eq(guns.Heartbeat,nil); eq(up[1],recoil)
+    c.Input.WindowFocusReleased:Fire(); eq(v.AttackSpeed.Value,3600); eq(v.Spread.Value,0.000001)
+    assert(guns.Heartbeat); assert(up[1]~=recoil)
     c.Input.WindowFocused:Fire(); eq(v.AttackSpeed.Value,3600)
     guns:Destroy(); eq(v.AttackSpeed.Value,400); eq(v.Spread.Value,1.5); eq(up[1],recoil)
     assert(refreshed>=3)
@@ -617,7 +614,7 @@ test("rejected native ammo refill reports failure without inventing ammunition",
     eq(c.Ammo:Begin(c.Tool,c.Box,c.Root),false); eq(c.Box.Time.Value,5)
 end)
 
-test("queued native refill cancels before starting when focus is lost",function()
+test("queued native refill still respects explicit lifecycle cancellation",function()
     local c=ammoFixture(); c.Ammo.CanStart=function() return false end
     assert(c.Ammo:Begin(c.Tool,c.Box,c.Root)); flush()
     eq(c.Calls(),0); eq(c.Ammo:Poll(),"failed"); eq(c.Tool.CurrentValues.Ammo.Value,10)
@@ -1248,10 +1245,38 @@ test("feature key capture remains available inside Escape menu",function()
     local e=bindingFixture();e.TextBox={};e.GuiService.MenuIsOpen=true;e.Keybind.Binding=true
     e:Dispatch(e:Input("Keyboard","F7"));eq(e.Keybind.Key,e.Enum.KeyCode.F7);eq(e.Keybind.Binding,false)
 end)
-test("native Escape menu pauses gameplay even when background mode is enabled",function()
-    local c=setup();c.Lib.Flags.FarmBackground=true
-    game:GetService("GuiService").MenuIsOpen=true;eq(c.A:Focused(),false)
-    game:GetService("GuiService").MenuIsOpen=false;eq(c.A:Focused(),true)
+test("Escape menu and text capture keep firing native without physical input",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);c.Zombie("A",8,0)
+    local b=c.Guns:BindWeapon(t);c.Lib.Flags.FarmAutoShoot=true;c.A:SnapshotZombies()
+    game:GetService("GuiService").MenuIsOpen=true;c.Input.TextBox={};c.Lib.CapturingMenuKey=true
+    c.A:PreRender();eq(c.A:Focused(),true);eq(c.A.MouseMode,"native");eq(b.Environment.mouse1Down,true);eq(Presses,0)
+    c.Input.Held={[Enum.KeyCode.W]=true};eq(c.A:ManualMovement(),false)
+    c.A:Sprint(true);eq(ShiftPresses,0)
+    c.A.MoveDirection=Vector3.new(1,0,0);c.A:Render();eq(c.H.LastMove.X,1)
+    eq(c.A.Refill.CanStart(),true);eq(c.A.Shop.CanStart(),true)
+    c.Lib.Items.FarmAutoShoot:Set(false);eq(b.Environment.mouse1Down,false)
+end)
+
+test("native menu firing fails closed without a supported latch and unload clears it",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);c.Zombie("A",8,0)
+    local b=c.Guns:BindWeapon(t);c.Lib.Flags.FarmAutoShoot=true;c.A:SnapshotZombies();c.Lib.WindowVisible=true
+    b.Environment.mouse1Down=nil;c.A:PreRender();eq(Presses,0);eq(c.A.MouseOwned,false)
+    b.Environment.mouse1Down=false;Now=Now+1;c.A:PreRender();eq(b.Environment.mouse1Down,true)
+    c.A:Destroy();eq(b.Environment.mouse1Down,false);eq(Presses,0)
+end)
+
+test("actual menu visibility preserves committed movement and smart shot plan",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);c.Zombie("A",8,0)
+    local b=c.Guns:BindWeapon(t);c.Lib.Flags.FarmAutoShoot=true;c.A:SnapshotZombies();c.A:PreRender()
+    local target=c.A.Target;local plan={Pending={100}};c.A.BurstPlan=plan
+    c.A.MoveDirection=Vector3.new(1,0,0);c.A.Travelling=true;c.A.TravelPurpose="ammo";c.A.Navigation.Route={}
+    local route=c.A.Navigation.Route;c.Lib.Automation=c.A;c.Lib.Drawings={}
+    c.Lib.SetMenuMouseCapture=function()end;c.Lib.SetBindListVisible=function()end
+    LoadUIVisibility(setmetatable({Library=c.Lib,UserInput=c.Input,Utility={Fade=function()end}}, {__index=_G}))
+    c.Lib:ChangeVisible(true);eq(c.A.Target,target);eq(c.A.BurstPlan,plan);eq(c.A.Travelling,true)
+    eq(c.A.Navigation.Route,route);eq(c.A.MoveDirection.X,1);eq(Releases,1)
+    Now=Now+1;c.A:PreRender();eq(c.A.MouseMode,"native");eq(b.Environment.mouse1Down,true)
+    c.Lib:ChangeVisible(false);eq(b.Environment.mouse1Down,false);eq(c.A.Navigation.Route,route)
 end)
 
 print(string.format("%d passed, %d failed",passed,failed))

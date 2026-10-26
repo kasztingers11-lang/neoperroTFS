@@ -18,3 +18,12 @@ The most useful next step is a native ammo-box upgrade planner. It requires fres
 - **Optional route preview:** display only the committed collision-checked route and destination, making blocked exits visible without restoring the removed status paragraphs.
 
 These remain proposals. SMART BURSTS, fractional reserve selection, optional supply cash reserve and swept-path threat checks are now implemented and tested offline. Adaptive retreat distance and an ammo-box upgrade planner are not implemented. Stable steering, checked travel ownership, manual override and stamina-aware sprint remain in place.
+
+## Efficiency proposals after permanent background operation
+
+- **Preferred main/backup and return after refill:** avoid sticking to a weaker backup after the main weapon becomes usable.
+- **Exposure-aware resupply:** score stocked, permitted boxes by checked path length and predicted threat exposure, rather than straight-line proximity alone.
+- **Native weapon upgrade profiles:** prioritize damage/headshot efficiency or sustainable fire rate within the actual game upgrade system. Do not assume a cosmetic damage/range value changes server damage.
+- **Weapon-specific fire-rate presets:** save a tested rate per weapon; choose the lowest rate that reliably meets the intended damage cadence rather than globally maximizing clicks. Accepted server throughput requires live measurement.
+
+These are proposals, not implemented or live-verified features.

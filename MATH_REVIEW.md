@@ -14,7 +14,7 @@ This revision was reviewed locally. It has no new live-game validation. No chang
 | Refill | True reserve/capacity ratio, per-threat time-to-contact margin, native duration and proximity | Stock, permissions and native timing still apply; no instant or anywhere refill |
 | Purchases | Serialized native transactions and optional cash reserve before weapon upgrades | Native prices, locks, cash and confirmation remain authoritative |
 | Ready and priorities | Emergency movement, actionable resupply, shop work and quiet-period readiness retain shared ownership | Other players and native voting permissions can delay a round |
-| Camera, controls and effects | Existing pause/menu ownership and bounded visual work remain regression-tested | No new live cursor, hit-placement or camera test this revision |
+| Camera, controls and effects | Automation continues through menus/background; physical input ownership and bounded visual work remain regression-tested | No new live cursor, hit-placement or camera test this revision |
 
 For relative planar position `r` and relative velocity `v`, closest approach is evaluated at `clamp(-dot(r,v)/dot(v,v), 0, horizon)`. Zero relative velocity is handled separately. The minimum separation is checked along motion rather than assuming that a clear endpoint means a safe crossing.
 
@@ -28,4 +28,4 @@ Two seconds; 60 native shots/second; 40 HP per target; 50 damage per shot; 80 ms
 | 144 | 120 | 24 | 92 / 0 | 23 / 23 |
 | 240 | 120 | 24 | 92 / 0 | 23 / 23 |
 
-The full suite runs 108 production behavioral checks plus four packaging checks. Trajectory checks compare the analytic minimum against dense samples for 60 deterministic scenes. Compilation and local analysis also pass. None of these establish a real-game performance gain.
+The full suite runs 110 production behavioral checks plus four packaging checks. Trajectory checks compare the analytic minimum against dense samples for 60 deterministic scenes. Compilation and local analysis also pass. None of these establish a real-game performance gain.

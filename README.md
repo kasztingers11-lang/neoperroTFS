@@ -22,13 +22,13 @@ The **0.01-second refill experiment failed**: reserve did not increase. Its test
 
 ## Focus and camera
 
-With **run while unfocused** off (default), losing focus stops owned automation, restores gun mods/camera overrides and cancels queued refill starts. Already-sent transactions can finish. Enabled preferences resume on focus return.
+Background operation is permanent. There is no RUN WHILE UNFOCUSED toggle; old profiles containing a disabled FarmBackground flag cannot disable it. Enabled automation and gun mods continue while unfocused, while the neoperro UI is open, and while the native ESC menu or a textbox/key capture is active. STOP AUTOMATION, individual feature switches and UNLOAD still work.
 
-The hit marker has no avatar/screen-center fallback when a recent contact is unknown. Chams reject the local character.
+When physical gameplay input is unavailable, shooting uses the existing native GunScript mouse1Down latch instead of OS clicks. Switching input modes releases the previous owned press, and unload clears the owned latch. Missing native latch support stops firing rather than clicking a menu. Movement and native refill/shop work retain their normal permissions and shared ownership. Automated Shift is limited to focused gameplay outside menus/text entry; background or menu sprint is not implemented.
 
-The opt-in background mode uses the native GunScript firing latch instead of OS mouse/keyboard commands. This path is **experimental: background damage was not verified live**. Background movement does not send Shift, so sprint requires foreground focus. Roblox may throttle rendering while unfocused/minimized. The user chose to finish without another live firing check.
+This path is experimental: menu/background damage has not been verified live. The script removes its own pause gates; the native game can still block firing, movement or interactions, and Roblox can throttle rendering while unfocused/minimized. No client or server restriction is bypassed by these scheduling changes.
 
-An open neoperro menu, native Roblox ESC menu, text editing or key capture pauses farming. RightShift and setting clicks/key capture remain available inside the native ESC menu, including when CoreGui focuses its search textbox. The cursor stays free there. The menu releases the cursor; hold right mouse outside the UI to rotate the native camera. Manual mouse/Shift input is not deliberately taken over. Unload removes owned changes and listeners; a pending OS release can retain one temporary focus listener until release is possible.
+The menu releases the cursor; hold right mouse outside the UI to rotate the native camera. RightShift, setting clicks and explicit key capture remain available inside ESC. UI text and shortcuts do not become physical movement commands. The hit marker has no avatar/screen-center fallback when a recent contact is unknown; chams reject the local character. Unload removes owned changes and listeners; a pending OS release can retain one temporary focus listener until release is possible.
 
 ## Visuals
 
@@ -50,7 +50,7 @@ Unassigned keys never match mouse `Unknown` key codes. Feature shortcuts run onl
 
 `src/Library.luau` renders the UI; `Features` manages gun changes; `Automation` coordinates gameplay; `Navigation`, `AmmoAdapter` and `ShopAdapter` wrap native movement, refill and shop interactions; `Visuals` owns shot effects. Native closure layouts are guarded against the inspected game v312. Native firing packets are not rewritten.
 
-Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for four packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 108 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
+Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for four packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 110 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
 
 Target acquisition uses squared distances and at most eight visibility rays per throttled search, with fair revisits to blocked candidates. Retreat checks closest approach along movement segments, not just endpoint distance, and nearby threats dominate separation steering. Refill selection ranks reserve fractions using real capacities; its safety gap considers each zombie's speed and distance separately. Charge weapons retain their native firing type under RAPID FIRE. See [MATH_REVIEW.md](MATH_REVIEW.md) for the offline audit and simulation limits.
 

@@ -4,9 +4,8 @@ return function(Library: any, Window: any)
     local Run = game:GetService("RunService")
     local Input = game:GetService("UserInputService")
     local F: any = {Alive = true, Connections = {}, Weapons = {}, Values = {},
-        Retries = {}, Callbacks = {}, Notices = {}, LastApply = 0, FocusPaused = not isrbxactive()}
+        Retries = {}, Callbacks = {}, Notices = {}, LastApply = 0}
     local Flags = Library.Flags
-    local function Paused() return Flags.FarmBackground ~= true and (F.FocusPaused or not isrbxactive()) end
     local Keys = {"GunRapidFire", "GunNoSpread", "GunNoRecoil", "FarmAutoShoot"}
     local function Notify(Key, Message)
         if F.Notices[Key] == Message then return end
@@ -22,7 +21,6 @@ return function(Library: any, Window: any)
         pcall(function() Connection:Disconnect() end)
     end
     local function NeedUpdates()
-        if Paused() then return false end
         for _, Key in ipairs(Keys) do if Flags[Key] == true then return true end end
         return false
     end
@@ -106,7 +104,7 @@ return function(Library: any, Window: any)
             local Recoil = B.Recoil
             B.RecoilProxy = setmetatable({}, {__index = Recoil})
             function B.RecoilProxy:AddRecoil(...)
-                if Flags.GunNoRecoil ~= true or F.Suspended or Paused() then return Recoil.AddRecoil(Recoil, ...) end
+                if Flags.GunNoRecoil ~= true or F.Suspended then return Recoil.AddRecoil(Recoil, ...) end
                 return nil
             end
             debug.setupvalue(Fire, B.RecoilIndex, B.RecoilProxy)
@@ -122,11 +120,11 @@ return function(Library: any, Window: any)
         return B
     end
     function F:ApplyTool(Tool)
-        local BindingNeed = not Paused() and (Flags.GunNoSpread == true or Flags.GunNoRecoil == true or Flags.FarmAutoShoot == true)
+        local BindingNeed = (Flags.GunNoSpread == true or Flags.GunNoRecoil == true or Flags.FarmAutoShoot == true)
         local B = BindingNeed and self:BindWeapon(Tool) or self.Weapons[Tool]
         local V = Tool:FindFirstChild("CurrentValues")
         if not V then return end
-        local Suspended = self.Suspended or Paused()
+        local Suspended = self.Suspended
         local TypeValue = V:FindFirstChild("FireType")
         local TypeRecord = TypeValue and self.Values[TypeValue]
         local NativeType = TypeRecord and (TypeValue.Value ~= TypeRecord.Applied and TypeValue.Value or TypeRecord.Original) or TypeValue and TypeValue.Value
@@ -246,9 +244,7 @@ return function(Library: any, Window: any)
     Connect(P.ChildAdded, function(Child)
         if Child:IsA("Backpack") then F:WatchInventory(Child, "BackpackConnections") end
     end)
-    Connect(Input.WindowFocusReleased, function() F.FocusPaused = true; F:Refresh() end)
-    Connect(Input.WindowFocused, function() F.FocusPaused = false; F:Refresh() end)
-    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "FarmAutoShoot", "FarmBackground"}) do
+    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "FarmAutoShoot"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback

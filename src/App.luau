@@ -47,7 +47,6 @@ Camera:Slider({Title = "CAMERA DISTANCE", Flag = "CameraDistance", Symbol = "", 
 local Control = Main:Section("CONTROL", "Right")
 Control:Button({Title = "START FARMING", Callback = function() if Library.Automation then Library.Automation:StartFarm() end end})
 Control:Button({Title = "STOP AUTOMATION", Callback = function() if Library.Automation then Library.Automation:StopAutomation() end end})
-Control:Toggle({Title = "RUN WHILE UNFOCUSED", Flag = "FarmBackground"})
 Control:Toggle({Title = "AUTO START ROUND", Flag = "FarmAutoReady"})
 
 local Visuals = Window:Tab("VISUALS")

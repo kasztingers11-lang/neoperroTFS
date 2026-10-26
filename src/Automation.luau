@@ -56,8 +56,10 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     function A:NativeFocused()
         return self.WindowFocused ~= false and isrbxactive() == true
     end
-    function A:Focused()
-        return (self:NativeFocused() or Flags.FarmBackground == true) and Input:GetFocusedTextBox() == nil
+    -- Automation lifetime and physical input ownership are separate. Menus do not stop native work.
+    function A:Focused() return self.Alive and not self.Failed end
+    function A:InputAvailable()
+        return self:NativeFocused() and Input:GetFocusedTextBox() == nil
             and not Library.WindowVisible and not Library.CapturingMenuKey and not GuiService.MenuIsOpen
     end
     function A:ReleaseMouse()
@@ -76,6 +78,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         self.MouseMode = nil
     end
     function A:Sprint(State)
+        if not self:InputAvailable() then State = false end
         if State then
             local Values = P:FindFirstChild("PlayerValues")
             local Current = Values and Values:FindFirstChild("Stamina")
@@ -97,7 +100,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
     end
     function A:ManualMovement()
-        if not self:NativeFocused() then return false end
+        if not self:InputAvailable() then return false end
         for _, Key in ipairs({Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
             Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right}) do
             if Input:IsKeyDown(Key) then self.ManualUntil = os.clock() + 0.25; return true end
@@ -441,7 +444,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local FireType = Value(Tool, "FireType", "Single")
         if FireType == "Charge" then self:ReleaseMouse(); Status("FarmStatus", "Charge weapons need manual fire"); return end
         if not self:BurstGate(Tool, B) then self:ReleaseMouse(); return end
-        local Native = not self:NativeFocused() and Flags.FarmBackground == true
+        local Native = not self:InputAvailable()
         if Native and type(B.Environment.mouse1Down) ~= "boolean" then
             self:ReleaseMouse(); Status("FarmStatus", "Background fire unavailable"); return
         end
@@ -958,9 +961,6 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     Own("FarmAutoShoot", function(V) if not V then A:ReleaseAim() end end)
     Own("FarmKeepDistance", function(V) if not V then A:StopMovement(); A.Navigation:Reset() end end)
     Own("FarmAutoRefill", function(V) if not V and A.TravelPurpose == "ammo" then A:CancelTravel() end end)
-    Own("FarmBackground", function()
-        A:ReleaseAim(); A:StopMovement(); A:CancelTravel(); A.Navigation:Reset(); Guns:Refresh()
-    end)
     Own("FarmRestockBox", function(V) if not V and not Flags.UpgradeEnabled then A:CancelTravel() end end)
     Own("FarmUseSprint", function(V) if not V then A:Sprint(false) end end)
     Own("FarmShowCircle", function() A:HideVisuals() end)
@@ -972,7 +972,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end)
     Connect(Input.WindowFocusReleased, function()
         A.WindowFocused = false
-        A:ReleaseAim(); A:StopMovement(); A:CancelTravel(); A.Navigation:Reset(); A:CameraState()
+        A:ReleaseMouse(); A:Sprint(false); A:RestoreView(); A:CameraState()
     end)
     Connect(Input.WindowFocused, function()
         A.WindowFocused = true
@@ -995,7 +995,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local K = Event.KeyCode
         if K == Enum.KeyCode.W or K == Enum.KeyCode.A or K == Enum.KeyCode.S or K == Enum.KeyCode.D
             or K == Enum.KeyCode.Up or K == Enum.KeyCode.Down or K == Enum.KeyCode.Left or K == Enum.KeyCode.Right then
-            if A:NativeFocused() then
+            if A:InputAvailable() then
                 A.ManualUntil = os.clock() + 0.25
                 A:StopMovement(); A:CancelTravel(); A.Navigation:Reset()
             end

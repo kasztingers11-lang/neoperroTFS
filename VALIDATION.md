@@ -1,6 +1,13 @@
 # Validation — 2026-10-26
 
-## Current offline feature audit
+## Current permanent background/menu operation
+
+- Removed the background toggle and every gameplay dependency on its saved flag. Enabled automation no longer pauses for neoperro visibility, native ESC, text entry, key capture or focus loss. Individual switches, STOP AUTOMATION, errors and unload retain their stop behavior.
+- Physical input eligibility is separate. Menus/background use the existing native firing latch, with explicit owned-mode handoff; physical Shift and manual movement-key takeover are suppressed while a menu or text capture owns input. Focus loss preserves route/travel state while releasing owned physical inputs. Gun mods stay enabled across focus changes.
+- **110 behavioral checks and four packaging checks pass**, plus local compile/analysis. Regressions exercise stale focus reports, legacy disabled profiles, UI-to-game fire handoff, ESC/text capture, native movement, transaction eligibility, missing latch support, gun-mod restoration and unload. Earlier tests asserting menu/focus pauses were updated to the newly requested behavior.
+- No new MCP or live game session was used. Native game firing/menu restrictions and background frame throttling may still apply; these tests establish script control flow, not accepted live damage.
+
+## Previous offline feature audit
 
 - **108 production behavioral checks and four packaging checks pass.** The standalone bundle also passes local Luau compilation and analysis. No live damage, sustained FPS, survival or purchase acceptance was tested for this revision. The newly connected MCP was left unused as requested.
 - SMART BURSTS counts native emitted shots, learns only from nonlethal single-pending-shot health changes, budgets remaining shots from health/damage, and bounds outstanding shots by fire rate and feedback latency. Armor/damage changes, healing, confirmed upgrades and missing feedback invalidate relevant assumptions. Unknown damage uses a probe; absent shot events fall back to normal firing. Damage attribution remains heuristic.

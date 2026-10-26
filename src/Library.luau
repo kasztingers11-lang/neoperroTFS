@@ -540,9 +540,10 @@ do
     function Library:ChangeVisible(State)
         Library.WindowVisible = State
         Library:SetMenuMouseCapture(State)
-        if State and Library.Automation then
-            Library.Automation:ReleaseAim(); Library.Automation:StopMovement()
-            Library.Automation:CancelTravel(); Library.Automation.Navigation:Reset()
+        if Library.Automation then
+            -- Hand physical input back without discarding targets, routes or transactions.
+            Library.Automation:ReleaseMouse(); Library.Automation:Sprint(false)
+            Library.Automation:RestoreView()
         end
         UserInput.MouseIconEnabled = true
         if not State and Library.WindowInstance then Library.WindowInstance:ClosePopups() end
