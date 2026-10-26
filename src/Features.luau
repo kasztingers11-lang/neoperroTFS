@@ -89,11 +89,13 @@ return function(Library: any, Window: any)
         if Retry and Now - Retry.Last < 1 then return nil end
         self.Retries[Tool] = {Last = Now}
         local OK, Environment = pcall(getsenv, Script)
-        if not OK then return nil end
-        local Fire = filtergc("function", {Name = "FireWeapon", Environment = Environment}, true)
-        if not Fire then return nil end  
+        if not OK or type(Environment) ~= "table" then return nil end
+        local Found, Fire = pcall(function() return filtergc("function", {Name = "FireWeapon", Environment = Environment}, true) end)
+        if not Found or type(Fire) ~= "function" then return nil end
+        local InfoOK, Info = pcall(debug.getinfo, Fire)
+        if not InfoOK or type(Info) ~= "table" or type(Info.nups) ~= "number" then return nil end  
         B = {Tool = Tool, Script = Script, Environment = Environment, Fire = Fire}
-        for Index = 1, math.min(debug.getinfo(Fire).nups, 128) do
+        for Index = 1, math.min(Info.nups, 128) do
             local V = debug.getupvalue(Fire, Index)
             if type(V) == "table" and type(V.GetIgnoreList) == "function" then B.Manager = V end
             if not B.RecoilIndex and type(V) == "table" and type(V.AddRecoil) == "function" then

@@ -1,6 +1,14 @@
 # Validation — 2026-10-26
 
-## Current keyboard-bind repair
+## Current dependency reliability revision
+
+- User confirmed auto refill works. Live diagnosis showed 137/145 reserve rounds and a 50% trigger; no refill threshold or movement-priority change was made.
+- Late/replaced Fire/Hit/Damage events are discovered once per second, with old listeners disconnected and stale hit contact reset. Incorrect event classes are ignored until valid replacements arrive; unload disconnects every owned listener.
+- Ammo/shop module loading and native gun discovery now contain temporary lookup failures. Ammo caches context probes for one second; shop revalidates module/frame identity and retries unavailable context with one-second backoff. No outgoing transaction is replayed automatically and uncertainty stops remain.
+- Reloaded the revision in Real after checking no native transaction was pending, restored current preferences and the hidden-menu state, and removed the temporary profile. Live inspection found automation not failed, visuals alive with three native listeners, a supported ammo context and AUTO REFILL enabled. No new console warnings/errors were reported. This is startup/dependency evidence, not a controlled damage or sustained-survival test.
+- **134 behavioral checks and six packaging/source checks pass**, with local compile/analysis. Added dependency-error/recovery, late event replacement, no-duplicate callback, malformed event and cleanup regressions. Existing feature interaction, input, navigation, resupply, native transaction and App startup tests remain green. These tests do not guarantee every feature against future game changes.
+
+## Previous keyboard-bind repair
 
 - Live state showed AUTO SHOOT assigned to T, Roblox focused and the script menu visible. The shortcut handler rejected every bind while that menu was open. Keyboard shortcuts now work with the UI open or hidden; mouse-bound shortcuts remain suppressed over the open menu. Text entry, menu-key capture and feature-key capture retain priority.
 - **128 behavioral checks and six packaging/source checks pass**, plus local Luau compilation and analysis. Added regressions for keyboard Toggle/Hold with the UI visible and continued mouse/text/capture suppression.

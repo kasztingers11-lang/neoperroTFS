@@ -3671,11 +3671,13 @@ return function(Library: any, Window: any)
         if Retry and Now - Retry.Last < 1 then return nil end
         self.Retries[Tool] = {Last = Now}
         local OK, Environment = pcall(getsenv, Script)
-        if not OK then return nil end
-        local Fire = filtergc("function", {Name = "FireWeapon", Environment = Environment}, true)
-        if not Fire then return nil end  
+        if not OK or type(Environment) ~= "table" then return nil end
+        local Found, Fire = pcall(function() return filtergc("function", {Name = "FireWeapon", Environment = Environment}, true) end)
+        if not Found or type(Fire) ~= "function" then return nil end
+        local InfoOK, Info = pcall(debug.getinfo, Fire)
+        if not InfoOK or type(Info) ~= "table" or type(Info.nups) ~= "number" then return nil end  
         B = {Tool = Tool, Script = Script, Environment = Environment, Fire = Fire}
-        for Index = 1, math.min(debug.getinfo(Fire).nups, 128) do
+        for Index = 1, math.min(Info.nups, 128) do
             local V = debug.getupvalue(Fire, Index)
             if type(V) == "table" and type(V.GetIgnoreList) == "function" then B.Manager = V end
             if not B.RecoilIndex and type(V) == "table" and type(V.AddRecoil) == "function" then
@@ -3881,25 +3883,29 @@ return function()
         return Bag and Bag:FindFirstChild(Name) or P.Character and P.Character:FindFirstChild(Name)
     end
     function A:GetContext()
-        if self.Context and self.Context.Frame.Parent then return self.Context end
         local Scripts = P:FindFirstChild("PlayerScripts")
         local Manager = Scripts and Scripts:FindFirstChild("GuiManager")
         local Main = Manager and Manager:FindFirstChild("MainGui")
         local Module = Main and Main:FindFirstChild("ShopGui")
         if not Module then return nil end
-        local Shop = Load(Module)
-        if type(Shop) ~= "table" or type(Shop.Next) ~= "function" then return nil end
-        local Update = getfenv(Shop.Next).UpdateUpgrade
-        if type(Update) ~= "function" or debug.getinfo(Update).nups < 18 then return nil end
-         
-        local Frame = debug.getupvalue(Update, 4)
-        local Info = debug.getupvalue(Update, 8)
-        if typeof(Frame) ~= "Instance" or Frame.Name ~= "ShopFrame"
-            or typeof(Info) ~= "Instance" then return nil end
-        local NativeFrame: any = Frame
-        local NativeInfo: any = Info
-        if not NativeFrame:FindFirstChild("Upgrade") or not NativeInfo:FindFirstChild("UpgradesFrame") then return nil end
-        self.Context = {Update = Update, Frame = NativeFrame, Information = NativeInfo}
+        if self.Context and self.Context.Module == Module and self.Context.Frame.Parent and self.Context.Information.Parent then return self.Context end
+        self.Context = nil
+        if self.ContextModule == Module and os.clock() < (self.ContextRetry or 0) then return nil end
+        self.ContextModule = Module; self.ContextRetry = os.clock() + 1
+        local OK, Context = pcall(function()
+            local Shop = Load(Module)
+            if type(Shop) ~= "table" or type(Shop.Next) ~= "function" then return nil end
+            local Update = getfenv(Shop.Next).UpdateUpgrade
+            if type(Update) ~= "function" or debug.getinfo(Update).nups < 18 then return nil end
+            local Frame = debug.getupvalue(Update, 4)
+            local Info = debug.getupvalue(Update, 8)
+            if typeof(Frame) ~= "Instance" or Frame.Name ~= "ShopFrame" or typeof(Info) ~= "Instance" then return nil end
+            local NativeFrame: any = Frame
+            local NativeInfo: any = Info
+            if not NativeFrame:FindFirstChild("Upgrade") or not NativeInfo:FindFirstChild("UpgradesFrame") then return nil end
+            return {Update = Update, Frame = NativeFrame, Information = NativeInfo, Module = Module}
+        end)
+        if OK then self.Context = Context end
         return self.Context
     end
     function A:TryPurchase(Weapon, OrderedLevels, CashReserve)
@@ -4368,14 +4374,21 @@ return function()
         local Gui = Scripts and Scripts:FindFirstChild("GuiManager")
         local Module = Gui and Gui:FindFirstChild("MainGui")
         if not Module then return nil end
-        local Main = Load(Module)
-        local Fn = type(Main) == "table" and type(Main.Init) == "function" and getfenv(Main.Init).AmmoCrate
-        if type(Fn) ~= "function" or debug.getinfo(Fn).nups ~= 11 then return nil end
-        local Manager = debug.getupvalue(Fn, 6)
-        local Remote = debug.getupvalue(Fn, 7)
-        if type(Manager) ~= "table" or type(Manager.GetMulti) ~= "function" or typeof(Remote) ~= "Instance"
-            or Remote.Name ~= "RemoteRefillAmmo" then return nil end
-        return {Function = Fn, Manager = Manager}
+        local Cached = self.ContextRecord
+        if Cached and Cached.Module == Module and os.clock() - Cached.At < 1 then return Cached.Value end
+        local OK, Context = pcall(function()
+            local Main = Load(Module)
+            local Fn = type(Main) == "table" and type(Main.Init) == "function" and getfenv(Main.Init).AmmoCrate
+            if type(Fn) ~= "function" or debug.getinfo(Fn).nups ~= 11 then return nil end
+            local Manager = debug.getupvalue(Fn, 6)
+            local Remote = debug.getupvalue(Fn, 7)
+            if type(Manager) ~= "table" or type(Manager.GetMulti) ~= "function" or typeof(Remote) ~= "Instance"
+                or Remote.Name ~= "RemoteRefillAmmo" then return nil end
+            return {Function = Fn, Manager = Manager}
+        end)
+        Context = OK and Context or nil
+        self.ContextRecord = {Module = Module, At = os.clock(), Value = Context}
+        return Context
     end
     function A:Ratio(Tool)
         local V = Tool and Tool:FindFirstChild("CurrentValues")
@@ -5606,6 +5619,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Scripts = P:FindFirstChild("PlayerScripts")
         local Manager = Scripts and Scripts:FindFirstChild("LocalVisualManager")
         local Event = Manager and Manager:FindFirstChild("LocalFireEvent")
+        if Event and not Event:IsA("BindableEvent") then Event = nil end
         if Event == self.ShotEvent then return end
         if self.ShotConnection then self.ShotConnection:Disconnect(); self.ShotConnection = nil end
         self.ShotEvent = Event; self.ShotFeedbackAvailable = Event ~= nil
@@ -5683,6 +5697,30 @@ return function(Library: any, Window: any)
         return D
     end
     local function Destroy(O) if O then pcall(function() O:Destroy() end) end end
+    function V:BindSignals(Force)
+        if not self.Alive or not Force and os.clock() < (self.NextSignalCheck or 0) then return end
+        self.NextSignalCheck = os.clock() + 1
+        local Scripts = P:FindFirstChild("PlayerScripts")
+        local Manager = Scripts and Scripts:FindFirstChild("LocalVisualManager")
+        local Remotes = RS:FindFirstChild("RemoteEvents")
+        local Objects = {Fire = Manager and Manager:FindFirstChild("LocalFireEvent"),
+            Hit = Remotes and Remotes:FindFirstChild("RemoteHitmarker"), Damage = Remotes and Remotes:FindFirstChild("ReturnServerDamage")}
+        self.SignalObjects = self.SignalObjects or {}; self.SignalConnections = self.SignalConnections or {}
+        for _, Key in ipairs({"Fire", "Hit", "Damage"}) do
+            local Object = Objects[Key]
+            if Object and not Object:IsA(Key == "Fire" and "BindableEvent" or "RemoteEvent") then Object = nil end
+            if self.SignalObjects[Key] ~= Object then
+                if self.SignalConnections[Key] then self.SignalConnections[Key]:Disconnect(); self.SignalConnections[Key] = nil end
+                self.SignalObjects[Key] = Object
+                if Object then
+                    if Key == "Fire" then self.SignalConnections[Key] = Object.Event:Connect(function(...) self:OnShot(...) end)
+                    elseif Key == "Hit" then self.SignalConnections[Key] = Object.OnClientEvent:Connect(function() self:OnHit() end)
+                    else self.SignalConnections[Key] = Object.OnClientEvent:Connect(function(Amount) self:OnDamage(Amount) end) end
+                end
+                self.ContactHit = nil; self.HitContact = nil
+            end
+        end
+    end
     function V:Point(Value)
         if typeof(Value) == "Vector3" then return Value end
         if type(Value) == "string" and #Value < 2048 then
@@ -5815,6 +5853,7 @@ return function(Library: any, Window: any)
         if not self.Alive then return end
         local Camera = W.CurrentCamera
         local Now = os.clock()
+        if Now >= (self.NextSignalCheck or 0) then self:BindSignals() end
         for _, T in ipairs(self.Tracers) do
             if T.Active then
             local Alpha = 1 - (Now - (T.At or -10)) / Duration("VisualTracerTime", 0.35)
@@ -5873,6 +5912,7 @@ return function(Library: any, Window: any)
         end
     end
     function V:Refresh()
+        self:BindSignals()
         local Need = Flags.VisualTracers or Flags.VisualHitChams or Flags.VisualHitIndicator
         if Need and not self.Rendering then
             self.Rendering = true
@@ -5896,19 +5936,12 @@ return function(Library: any, Window: any)
         self.Alive = false
         Run:UnbindFromRenderStep(RenderName)
         for _, C in ipairs(self.Connections) do C:Disconnect() end
+        for _, C in pairs(self.SignalConnections or {}) do C:Disconnect() end
+        self.SignalConnections = {}; self.SignalObjects = {}
         for Item, Record in pairs(self.Callbacks) do if Item.Callback == Record.Owned then Item.Callback = Record.Previous end end
         for _, D in ipairs(self.Drawings) do pcall(function() D:Remove() end) end
         Destroy(self.Folder); self.Chams = {}; self.Tracers = {}
     end
-    local Scripts = P:FindFirstChild("PlayerScripts")
-    local Manager = Scripts and Scripts:FindFirstChild("LocalVisualManager")
-    local Fire = Manager and Manager:FindFirstChild("LocalFireEvent")
-    if Fire then Connect(Fire.Event, function(...) V:OnShot(...) end) end
-    local Remotes = RS:FindFirstChild("RemoteEvents")
-    local Hit = Remotes and Remotes:FindFirstChild("RemoteHitmarker")
-    local Damage = Remotes and Remotes:FindFirstChild("ReturnServerDamage")
-    if Hit then Connect(Hit.OnClientEvent, function() V:OnHit() end) end
-    if Damage then Connect(Damage.OnClientEvent, function(Amount) V:OnDamage(Amount) end) end
     for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator", "VisualIntensity"}) do
         local Item = Library.Items[Key]
         if Item then

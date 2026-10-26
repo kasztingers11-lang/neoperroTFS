@@ -1102,6 +1102,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Scripts = P:FindFirstChild("PlayerScripts")
         local Manager = Scripts and Scripts:FindFirstChild("LocalVisualManager")
         local Event = Manager and Manager:FindFirstChild("LocalFireEvent")
+        if Event and not Event:IsA("BindableEvent") then Event = nil end
         if Event == self.ShotEvent then return end
         if self.ShotConnection then self.ShotConnection:Disconnect(); self.ShotConnection = nil end
         self.ShotEvent = Event; self.ShotFeedbackAvailable = Event ~= nil

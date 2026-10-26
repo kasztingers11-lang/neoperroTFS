@@ -1454,5 +1454,57 @@ test("keyboard Hold activates with menu visible while mouse binds remain blocked
     e:Dispatch(e:Input("MouseButton2"));eq(e.Callbacks,before)
 end)
 
+test("ammo module loading errors back off and recover without disabling automation",function()
+    local c=ammoFixture();local original=require;local calls=0
+    require=function(m)calls=calls+1;if calls==1 then error("module loading")end;return original(m)end
+    c.Ammo=AmmoFactory()
+    eq(c.Ammo:Context(),nil);eq(c.Ammo:Context(),nil);eq(calls,1)
+    Now=Now+1.1;assert(c.Ammo:Context());eq(calls,2)
+    local context=c.Ammo:Context();eq(calls,2);assert(context.Manager)
+end)
+
+test("shop module loading errors retry without submitting a purchase",function()
+    local c=nativeShop();local original=require;local calls=0
+    require=function(m)calls=calls+1;if calls==1 then error("module loading")end;return original(m)end
+    c.Native:Destroy();c.Native=ShopFactory()
+    eq(c.Native:GetContext(),nil);eq(c.Native:GetContext(),nil);eq(calls,1);eq(c.Clicks(),0)
+    Now=Now+1.1;assert(c.Native:GetContext());eq(calls,2);eq(c.Clicks(),0)
+end)
+
+test("visual listeners reconnect after event replacement without duplicate callbacks",function()
+    local c=visualFixture();local old=c.Damage;local parent=old.Parent
+    parent:Remove(old);local fresh=instance("ReturnServerDamage","RemoteEvent",parent,{OnClientEvent=signal()})
+    c.V:BindSignals(true);old.OnClientEvent:Fire(10);eq(c.V.RecentDamage,nil)
+    fresh.OnClientEvent:Fire(10);eq(c.V.RecentDamage,10)
+    c.V:BindSignals(true);fresh.OnClientEvent:Fire(5);eq(c.V.RecentDamage,15)
+    local active=0;for _,connection in ipairs(fresh.OnClientEvent.listeners)do if connection.Enabled then active=active+1 end end
+    eq(active,1);c.V:Destroy();fresh.OnClientEvent:Fire(30);eq(c.V.RecentDamage,15)
+end)
+
+test("visual late events are discovered after missing dependency and contacts reset",function()
+    local c=visualFixture();local fire=c.Fire;local parent=fire.Parent
+    parent:Remove(fire);c.V.ContactHit={At=Now};c.V:BindSignals(true);eq(c.V.ContactHit,nil)
+    local fresh=instance("LocalFireEvent","BindableEvent",parent,{Event=signal()})
+    local calls=0;c.V.OnShot=function()calls=calls+1 end
+    c.V:BindSignals(true);fresh.Event:Fire();eq(calls,1);fire.Event:Fire();eq(calls,1)
+    c.V:Destroy();fresh.Event:Fire();eq(calls,1)
+end)
+
+test("weapon environment discovery errors are retryable and never apply partial mods",function()
+    local c=setup();c.A:Destroy();local t=c.Weapon("Retry")
+    c.Lib.Flags.FarmAutoShoot=true;getsenv=function()return {}end
+    local fail=true;filtergc=function()if fail then error("script starting")end;return function()end end
+    debug={getinfo=function()return {nups=0}end}
+    local g=GunFactory(c.Lib,{SendNotification=function()end});eq(g.Weapons[t],nil)
+    fail=false;Now=Now+1.1;assert(g:BindWeapon(t));eq(t.CurrentValues.AttackSpeed.Value,300);g:Destroy()
+end)
+
+test("incomplete replacement events cannot disable visuals or shot tracking",function()
+    local c=visualFixture();local parent=c.Fire.Parent;parent:Remove(c.Fire)
+    local bad=instance("LocalFireEvent","Folder",parent);c.V:BindSignals(true);eq(c.V.SignalObjects.Fire,nil);eq(c.V.Alive,true)
+    parent:Remove(bad);local fresh=instance("LocalFireEvent","BindableEvent",parent,{Event=signal()})
+    c.V:BindSignals(true);eq(c.V.SignalObjects.Fire,fresh);c.V:Destroy()
+end)
+
 print(string.format("%d passed, %d failed",passed,failed))
 assert(failed==0,"Offline behavioral tests failed")

@@ -36,6 +36,30 @@ return function(Library: any, Window: any)
         return D
     end
     local function Destroy(O) if O then pcall(function() O:Destroy() end) end end
+    function V:BindSignals(Force)
+        if not self.Alive or not Force and os.clock() < (self.NextSignalCheck or 0) then return end
+        self.NextSignalCheck = os.clock() + 1
+        local Scripts = P:FindFirstChild("PlayerScripts")
+        local Manager = Scripts and Scripts:FindFirstChild("LocalVisualManager")
+        local Remotes = RS:FindFirstChild("RemoteEvents")
+        local Objects = {Fire = Manager and Manager:FindFirstChild("LocalFireEvent"),
+            Hit = Remotes and Remotes:FindFirstChild("RemoteHitmarker"), Damage = Remotes and Remotes:FindFirstChild("ReturnServerDamage")}
+        self.SignalObjects = self.SignalObjects or {}; self.SignalConnections = self.SignalConnections or {}
+        for _, Key in ipairs({"Fire", "Hit", "Damage"}) do
+            local Object = Objects[Key]
+            if Object and not Object:IsA(Key == "Fire" and "BindableEvent" or "RemoteEvent") then Object = nil end
+            if self.SignalObjects[Key] ~= Object then
+                if self.SignalConnections[Key] then self.SignalConnections[Key]:Disconnect(); self.SignalConnections[Key] = nil end
+                self.SignalObjects[Key] = Object
+                if Object then
+                    if Key == "Fire" then self.SignalConnections[Key] = Object.Event:Connect(function(...) self:OnShot(...) end)
+                    elseif Key == "Hit" then self.SignalConnections[Key] = Object.OnClientEvent:Connect(function() self:OnHit() end)
+                    else self.SignalConnections[Key] = Object.OnClientEvent:Connect(function(Amount) self:OnDamage(Amount) end) end
+                end
+                self.ContactHit = nil; self.HitContact = nil
+            end
+        end
+    end
     function V:Point(Value)
         if typeof(Value) == "Vector3" then return Value end
         if type(Value) == "string" and #Value < 2048 then
@@ -168,6 +192,7 @@ return function(Library: any, Window: any)
         if not self.Alive then return end
         local Camera = W.CurrentCamera
         local Now = os.clock()
+        if Now >= (self.NextSignalCheck or 0) then self:BindSignals() end
         for _, T in ipairs(self.Tracers) do
             if T.Active then
             local Alpha = 1 - (Now - (T.At or -10)) / Duration("VisualTracerTime", 0.35)
@@ -226,6 +251,7 @@ return function(Library: any, Window: any)
         end
     end
     function V:Refresh()
+        self:BindSignals()
         local Need = Flags.VisualTracers or Flags.VisualHitChams or Flags.VisualHitIndicator
         if Need and not self.Rendering then
             self.Rendering = true
@@ -249,19 +275,12 @@ return function(Library: any, Window: any)
         self.Alive = false
         Run:UnbindFromRenderStep(RenderName)
         for _, C in ipairs(self.Connections) do C:Disconnect() end
+        for _, C in pairs(self.SignalConnections or {}) do C:Disconnect() end
+        self.SignalConnections = {}; self.SignalObjects = {}
         for Item, Record in pairs(self.Callbacks) do if Item.Callback == Record.Owned then Item.Callback = Record.Previous end end
         for _, D in ipairs(self.Drawings) do pcall(function() D:Remove() end) end
         Destroy(self.Folder); self.Chams = {}; self.Tracers = {}
     end
-    local Scripts = P:FindFirstChild("PlayerScripts")
-    local Manager = Scripts and Scripts:FindFirstChild("LocalVisualManager")
-    local Fire = Manager and Manager:FindFirstChild("LocalFireEvent")
-    if Fire then Connect(Fire.Event, function(...) V:OnShot(...) end) end
-    local Remotes = RS:FindFirstChild("RemoteEvents")
-    local Hit = Remotes and Remotes:FindFirstChild("RemoteHitmarker")
-    local Damage = Remotes and Remotes:FindFirstChild("ReturnServerDamage")
-    if Hit then Connect(Hit.OnClientEvent, function() V:OnHit() end) end
-    if Damage then Connect(Damage.OnClientEvent, function(Amount) V:OnDamage(Amount) end) end
     for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator", "VisualIntensity"}) do
         local Item = Library.Items[Key]
         if Item then

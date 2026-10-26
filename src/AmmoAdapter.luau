@@ -9,14 +9,21 @@ return function()
         local Gui = Scripts and Scripts:FindFirstChild("GuiManager")
         local Module = Gui and Gui:FindFirstChild("MainGui")
         if not Module then return nil end
-        local Main = Load(Module)
-        local Fn = type(Main) == "table" and type(Main.Init) == "function" and getfenv(Main.Init).AmmoCrate
-        if type(Fn) ~= "function" or debug.getinfo(Fn).nups ~= 11 then return nil end
-        local Manager = debug.getupvalue(Fn, 6)
-        local Remote = debug.getupvalue(Fn, 7)
-        if type(Manager) ~= "table" or type(Manager.GetMulti) ~= "function" or typeof(Remote) ~= "Instance"
-            or Remote.Name ~= "RemoteRefillAmmo" then return nil end
-        return {Function = Fn, Manager = Manager}
+        local Cached = self.ContextRecord
+        if Cached and Cached.Module == Module and os.clock() - Cached.At < 1 then return Cached.Value end
+        local OK, Context = pcall(function()
+            local Main = Load(Module)
+            local Fn = type(Main) == "table" and type(Main.Init) == "function" and getfenv(Main.Init).AmmoCrate
+            if type(Fn) ~= "function" or debug.getinfo(Fn).nups ~= 11 then return nil end
+            local Manager = debug.getupvalue(Fn, 6)
+            local Remote = debug.getupvalue(Fn, 7)
+            if type(Manager) ~= "table" or type(Manager.GetMulti) ~= "function" or typeof(Remote) ~= "Instance"
+                or Remote.Name ~= "RemoteRefillAmmo" then return nil end
+            return {Function = Fn, Manager = Manager}
+        end)
+        Context = OK and Context or nil
+        self.ContextRecord = {Module = Module, At = os.clock(), Value = Context}
+        return Context
     end
     function A:Ratio(Tool)
         local V = Tool and Tool:FindFirstChild("CurrentValues")

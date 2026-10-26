@@ -38,25 +38,29 @@ return function()
         return Bag and Bag:FindFirstChild(Name) or P.Character and P.Character:FindFirstChild(Name)
     end
     function A:GetContext()
-        if self.Context and self.Context.Frame.Parent then return self.Context end
         local Scripts = P:FindFirstChild("PlayerScripts")
         local Manager = Scripts and Scripts:FindFirstChild("GuiManager")
         local Main = Manager and Manager:FindFirstChild("MainGui")
         local Module = Main and Main:FindFirstChild("ShopGui")
         if not Module then return nil end
-        local Shop = Load(Module)
-        if type(Shop) ~= "table" or type(Shop.Next) ~= "function" then return nil end
-        local Update = getfenv(Shop.Next).UpdateUpgrade
-        if type(Update) ~= "function" or debug.getinfo(Update).nups < 18 then return nil end
-         
-        local Frame = debug.getupvalue(Update, 4)
-        local Info = debug.getupvalue(Update, 8)
-        if typeof(Frame) ~= "Instance" or Frame.Name ~= "ShopFrame"
-            or typeof(Info) ~= "Instance" then return nil end
-        local NativeFrame: any = Frame
-        local NativeInfo: any = Info
-        if not NativeFrame:FindFirstChild("Upgrade") or not NativeInfo:FindFirstChild("UpgradesFrame") then return nil end
-        self.Context = {Update = Update, Frame = NativeFrame, Information = NativeInfo}
+        if self.Context and self.Context.Module == Module and self.Context.Frame.Parent and self.Context.Information.Parent then return self.Context end
+        self.Context = nil
+        if self.ContextModule == Module and os.clock() < (self.ContextRetry or 0) then return nil end
+        self.ContextModule = Module; self.ContextRetry = os.clock() + 1
+        local OK, Context = pcall(function()
+            local Shop = Load(Module)
+            if type(Shop) ~= "table" or type(Shop.Next) ~= "function" then return nil end
+            local Update = getfenv(Shop.Next).UpdateUpgrade
+            if type(Update) ~= "function" or debug.getinfo(Update).nups < 18 then return nil end
+            local Frame = debug.getupvalue(Update, 4)
+            local Info = debug.getupvalue(Update, 8)
+            if typeof(Frame) ~= "Instance" or Frame.Name ~= "ShopFrame" or typeof(Info) ~= "Instance" then return nil end
+            local NativeFrame: any = Frame
+            local NativeInfo: any = Info
+            if not NativeFrame:FindFirstChild("Upgrade") or not NativeInfo:FindFirstChild("UpgradesFrame") then return nil end
+            return {Update = Update, Frame = NativeFrame, Information = NativeInfo, Module = Module}
+        end)
+        if OK then self.Context = Context end
         return self.Context
     end
     function A:TryPurchase(Weapon, OrderedLevels, CashReserve)
