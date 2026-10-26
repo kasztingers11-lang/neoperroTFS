@@ -1,4 +1,14 @@
-# Validation — 2026-10-25
+# Validation — 2026-10-26
+
+## Current offline feature audit
+
+- **108 production behavioral checks and four packaging checks pass.** The standalone bundle also passes local Luau compilation and analysis. No live damage, sustained FPS, survival or purchase acceptance was tested for this revision. The newly connected MCP was left unused as requested.
+- SMART BURSTS counts native emitted shots, learns only from nonlethal single-pending-shot health changes, budgets remaining shots from health/damage, and bounds outstanding shots by fire rate and feedback latency. Armor/damage changes, healing, confirmed upgrades and missing feedback invalidate relevant assumptions. Unknown damage uses a probe; absent shot events fall back to normal firing. Damage attribution remains heuristic.
+- One synthetic 2-second encounter model, with 60 native shots/second, 40 HP targets, 50 damage and 80 ms health delay, produced the same result at simulated 60, 144 and 240 FPS: ordinary firing emitted 120 shots with 92 overkill shots; smart firing emitted 24 with zero overkill; both recorded 23 kills. These numbers describe that model only, not Roblox combat measurements.
+- Target acquisition has an eight-ray budget per throttled search, bounded candidate storage and fair occlusion backoff. Tests cover a blocked nearby crowd with a farther visible target. Existing sticky targeting still checks the live head.
+- Movement now checks analytic closest approach against moving threats along each candidate segment, with a two-second prediction bound, local inverse-square crowd repulsion and speed-aware wall lookahead. Sixty deterministic sampled trajectories cross-check the analytic calculation. Tests cover crossing enemies and invalidated committed routes; native navmesh behavior remains unverified here.
+- Refill safety uses each threat's distance, speed and native interaction duration. Inventory refill priority uses actual reserve/capacity ratios. Optional upgrades preserve the configured cash reserve; invalid numeric reserves refuse purchases. Charge weapons retain native semantics under Rapid Fire.
+- Existing camera, ESC settings, input ownership, readiness, transaction serialization, visual bounds and unload checks still pass. More detail and limitations are in MATH_REVIEW.md. Earlier live observations below are historical, not validation of this revision.
 
 
 

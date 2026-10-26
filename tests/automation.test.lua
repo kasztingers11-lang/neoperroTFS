@@ -277,7 +277,7 @@ test("blocked target searches stay throttled at 240 render frames per second",fu
     c.World.Ray=function() casts=casts+1; return {Instance=wall} end
     c.Lib.Flags.FarmAutoShoot=true; c.A:SnapshotZombies()
     for i=0,239 do Now=100+i/240; c.A:PreRender(1/240) end
-    assert(casts>=20 and casts<=31,tostring(casts)); eq(Presses,0)
+    assert(casts>=3 and casts<=8,tostring(casts)); eq(Presses,0)
 end)
 
 test("single-shot cadence is comparable across 60, 144 and 240 FPS without hitch bursts",function()
@@ -983,6 +983,189 @@ test("empty main gun chooses a ready supported backup by loaded rounds",function
     local low=c.Weapon("Low");low.CurrentValues.Clip.Value=1;low.CurrentValues.Ammo.Value=150
     local ready=c.Weapon("Ready");ready.CurrentValues.Clip.Value=12;ready.CurrentValues.Ammo.Value=5
     c.Lib.Flags.FarmAutoShoot=true;c.A:Shoot(main);flush();assert(c.P.Character:FindFirstChild("Ready"));eq(c.P.Character:FindFirstChild("Charge"),nil)
+end)
+
+local function smartFixture()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);t.CurrentValues.FireType.Value="FullAuto"
+    local z=c.Zombie("Target",8,0);local b=c.Guns:BindWeapon(t);b.Environment.LAS=7200
+    c.A.Target=z;c.A.ShotFeedbackAvailable=true;c.A.FrameDelta=1/144
+    c.Lib.Flags.FarmAutoShoot=true;c.Lib.Flags.FarmSmartBursts=true;c.Lib.Flags.GunRapidFire=true;c.Lib.Flags.GunFireRate=120
+    c.Tool=t;c.Z=z;c.Binding=b;return c
+end
+
+test("smart burst counts native shots and releases after an unknown-damage probe",function()
+    local c=smartFixture();c.A:Shoot(c.Tool);eq(Presses,1);eq(#c.A.BurstPlan.Pending,0)
+    c.A:ObserveShot(c.P,c.Tool);eq(#c.A.BurstPlan.Pending,1);eq(c.A.MouseOwned,false)
+    Now=Now+0.03;c.A:Shoot(c.Tool);eq(Presses,1)
+end)
+test("smart burst learns nonlethal damage and budgets only remaining shots",function()
+    local c=smartFixture();c.A:Shoot(c.Tool);c.A:ObserveShot(c.P,c.Tool)
+    Now=Now+0.04;c.Z.Humanoid.Health=70;assert(c.A:BurstGate(c.Tool,c.Binding))
+    eq(c.A.BurstPlan.Estimate,30);eq(c.A.BurstPlan.Needed,3)
+    c.A:Shoot(c.Tool)
+    for i=1,3 do Now=Now+1/144;c.A:ObserveShot(c.P,c.Tool)end
+    eq(#c.A.BurstPlan.Pending,3);eq(c.A.MouseOwned,false)
+    c.A:Shoot(c.Tool);eq(Presses,2)
+    c.Z.Humanoid.Health=10;eq(c.A:BurstGate(c.Tool,c.Binding),false);eq(#c.A.BurstPlan.Pending,1)
+    c.Z.Humanoid.Health=0;eq(c.A:BurstGate(c.Tool,c.Binding),false)
+end)
+test("lethal remaining health is not learned as the weapon damage",function()
+    local c=smartFixture();c.Z.Humanoid.Health=1;c.A:Shoot(c.Tool);c.A:ObserveShot(c.P,c.Tool)
+    c.Z.Humanoid.Health=0;eq(c.A:BurstGate(c.Tool,c.Binding),false);eq(c.A.BurstEstimate,nil)
+    c.A.Target=c.Zombie("Next",12,0);assert(c.A:BurstGate(c.Tool,c.Binding));eq(c.A.BurstPlan.Estimate,nil)
+end)
+test("lost hit feedback expires and resumes one probe without an unlimited hold",function()
+    local c=smartFixture();c.A:Shoot(c.Tool);c.A:ObserveShot(c.P,c.Tool)
+    eq(c.A:BurstGate(c.Tool,c.Binding),false);Now=Now+0.6
+    eq(c.A:BurstGate(c.Tool,c.Binding),true);eq(c.A.BurstPlan.Limit,1);eq(#c.A.BurstPlan.Pending,0)
+end)
+test("burst window tracks fire rate and caps outstanding shots",function()
+    local c=smartFixture();c.Z.Humanoid.Health=1000;c.A:BurstGate(c.Tool,c.Binding)
+    c.A.BurstPlan.Estimate=20;c.A:BurstGate(c.Tool,c.Binding);eq(c.A.BurstPlan.Limit,8)
+    c.Lib.Flags.GunFireRate=2;c.A:BurstGate(c.Tool,c.Binding);eq(c.A.BurstPlan.Limit,1)
+    assert(c.A:FireInterval(c.Tool,c.Binding)>=0.5)
+end)
+test("burst plans reset on weapon damage armor changes and healing",function()
+    local c=smartFixture();c.A:BurstGate(c.Tool,c.Binding);c.A.BurstPlan.Estimate=30
+    instance("HeadArmour","Part",c.Z.Model);c.A:BurstGate(c.Tool,c.Binding);eq(c.A.BurstPlan.Estimate,nil)
+    c.A.BurstPlan.Estimate=30;instance("Damage","NumberValue",c.Tool.CurrentValues,{Value=50})
+    c.A:BurstGate(c.Tool,c.Binding);eq(c.A.BurstPlan.Estimate,nil)
+    c.A:Shoot(c.Tool);c.A:ObserveShot(c.P,c.Tool);c.Z.Humanoid.Health=150
+    c.A:BurstGate(c.Tool,c.Binding);eq(#c.A.BurstPlan.Pending,0)
+end)
+test("smart mode never owns manual fire and falls back when feedback is absent",function()
+    local c=smartFixture();c.Input.PhysicalMouse=true;c.A:Shoot(c.Tool);eq(Presses,0)
+    c.A:ObserveShot(c.P,c.Tool);eq(#c.A.BurstPlan.Pending,0)
+    c.A.ShotFeedbackAvailable=false;c.Input.PhysicalMouse=false;c.A:Shoot(c.Tool);eq(Presses,1)
+    eq(c.A:BurstGate(c.Tool,c.Binding),true)
+end)
+test("unrelated native shot events do not consume the current burst budget",function()
+    local c=smartFixture();c.A:Shoot(c.Tool);local other=c.Weapon("Other")
+    c.A:ObserveShot({},c.Tool);c.A:ObserveShot(c.P,other);eq(#c.A.BurstPlan.Pending,0)
+end)
+test("late native shot listeners bind once and reconnect after replacement",function()
+    local c=setup();local scripts=instance("PlayerScripts","Folder",c.P)
+    local manager=instance("LocalVisualManager","LocalScript",scripts)
+    local event=instance("LocalFireEvent","BindableEvent",manager,{Event=signal()})
+    c.A:BindShotFeedback();c.A:BindShotFeedback();eq(#event.Event.listeners,1);eq(c.A.ShotFeedbackAvailable,true)
+    scripts:Remove(manager);c.A:BindShotFeedback();eq(event.Event.listeners[1].Enabled,false);eq(c.A.ShotFeedbackAvailable,false)
+    c.A:Destroy()
+end)
+test("target acquisition bounds rays and eventually examines blocked-crowd tails",function()
+    local c=setup();for i=1,40 do c.Zombie("Blocked"..i,i,0)end
+    local far=c.Zombie("Visible",41,0);local wall=instance("Wall","Part",c.World);local casts=0
+    c.World.Ray=function(_,d)casts=casts+1;if d.X<40.5 then return {Instance=wall}end end
+    c.A:SnapshotZombies();local found
+    for i=1,12 do local before=casts;found=c.A:SelectTarget(c.Root.Position,100,nil,true)
+        assert(casts-before<=8);if found then break end;Now=Now+0.1 end
+    assert(found and found.Model==far.Model);assert(casts<=48)
+end)
+test("nearby danger outweighs a distant crowd in escape direction",function()
+    local c=setup();local near=c.Zombie("Near",5,0);local list={near}
+    for i=1,200 do table.insert(list,c.Zombie("Far"..i,-50,i%2))end
+    local distance,away=c.A.Navigation:Separation(c.Root.Position,list);eq(distance,5);assert(away.X< -0.99)
+end)
+test("closest approach catches enemies between clear endpoints and moving crossings",function()
+    local c=setup();local z=c.Zombie("Middle",4,0);local n=c.A.Navigation
+    assert(n:SweptGap(Vector3.zero,Vector3.new(8,0,0),{z},16)<0.001)
+    z.Head.Position=Vector3.new(4,4.5,-8);z.Head.AssemblyLinearVelocity=Vector3.new(0,0,32)
+    assert(n:SweptGap(Vector3.zero,Vector3.new(8,0,0),{z},16)<0.001)
+    z.Head.AssemblyLinearVelocity=Vector3.new(0/0,0,0)
+    assert(n:SweptGap(Vector3.zero,Vector3.new(8,0,0),{z},16)>=8)
+end)
+test("closest approach matches densely sampled relative-motion trajectories",function()
+    local c=setup();local n=c.A.Navigation;math.randomseed(20261026)
+    for i=1,60 do
+        local finish=Vector3.new(math.random(-15,15),0,math.random(-15,15));if finish.Magnitude<0.1 then finish=Vector3.new(5,0,0)end
+        local z=c.Zombie("Sample"..i,math.random(-15,15),math.random(-15,15))
+        z.Head.AssemblyLinearVelocity=Vector3.new(math.random(-20,20),0,math.random(-20,20))
+        local exact=n:SweptGap(Vector3.zero,finish,{z},16);local duration=math.min(2,finish.Magnitude/16)
+        local velocity=finish.Unit*16;local sampled=math.huge
+        for j=0,200 do local t=duration*j/200;local d=velocity*t-(Vector3.new(z.Head.Position.X,0,z.Head.Position.Z)+z.Head.AssemblyLinearVelocity*t)
+            sampled=math.min(sampled,d.Magnitude)end
+        assert(exact<=sampled+0.000001);assert(sampled-exact<0.2)
+    end
+end)
+test("a previously clear route rejects a zombie entering its corridor",function()
+    local c=setup();c.Zombie("Crossing",5,0);c.A:SnapshotZombies();local n=c.A.Navigation
+    n.Route={{Position=c.Root.Position},{Position=Vector3.new(12,3,0)}};n.Index=2;n.RouteAt=Now;n.Active=true
+    local d=c.A:ChooseEscape(c.Root,24);assert(d and d.X<0)
+end)
+test("resupply gap accounts for threat distance instead of the fastest distant zombie",function()
+    local c=setup();local near=c.Zombie("Near",20,0);near.Humanoid.WalkSpeed=4
+    local far=c.Zombie("Far",100,0);far.Humanoid.WalkSpeed=40
+    eq(c.A.Navigation:RefillGap(c.Root.Position,{near,far},1),20)
+    near.Head.Position=Vector3.new(16,4.5,0);near.Humanoid.WalkSpeed=8
+    eq(c.A.Navigation:RefillGap(c.Root.Position,{near},2),26)
+end)
+test("ammo needs use capacity fractions including native multipliers",function()
+    local c=ammoFixture();local ratio,capacity=c.Ammo:Ratio(c.Tool);eq(capacity,200);eq(ratio,0.05)
+    eq(c.Ammo:Needs(c.Tool,5),true);c.Tool.CurrentValues.Ammo.Value=11;eq(c.Ammo:Needs(c.Tool,5),false)
+    c.Tool.CurrentValues.Ammo.Value=-1;eq(c.Ammo:Needs(c.Tool,90),false)
+end)
+test("backpack resupply prioritizes the lowest reserve fraction",function()
+    local c=setup();local a=c.Weapon("Small");a.CurrentValues.Ammo.Value=10;instance("MaxAmmo","NumberValue",a.CurrentValues,{Value=100})
+    local b=c.Weapon("Large");b.CurrentValues.Ammo.Value=15;instance("MaxAmmo","NumberValue",b.CurrentValues,{Value=1000})
+    eq(c.A:AmmoTool(),b)
+end)
+test("upgrade cash reserve protects supplies and permits exact-budget purchases",function()
+    local c=nativeShop();eq(c.Native:TryPurchase("Pistol",{c.Level},950),nil);eq(c.Clicks(),0)
+    assert(c.Native:TryPurchase("Pistol",{c.Level},900));eq(c.Cash.Value,900);eq(c.Clicks(),1)
+end)
+test("invalid cash reserve cannot silently remove the purchase budget",function()
+    local c=nativeShop();eq(c.Native:TryPurchase("Pistol",{c.Level},0/0),nil)
+    eq(c.Native:TryPurchase("Pistol",{c.Level},math.huge),nil);eq(c.Clicks(),0)
+end)
+test("rapid fire preserves unsupported charge semantics",function()
+    local c=setup();c.A:Destroy();local t=c.Weapon("Charge");t.CurrentValues.FireType.Value="Charge"
+    c.Lib.Flags.GunRapidFire=true;c.Lib.Flags.GunFireRate=120
+    local g=GunFactory(c.Lib,{SendNotification=function()end})
+    eq(t.CurrentValues.FireType.Value,"Charge");eq(t.CurrentValues.AttackSpeed.Value,300);g:Destroy()
+end)
+
+test("smart bursts reduce simulated one-hit overkill across 60 144 and 240 FPS",function()
+    local function simulate(fps,smart)
+        local c=setup();local tool=c.Weapon("Pistol",c.P.Character);tool.CurrentValues.FireType.Value="FullAuto";tool.CurrentValues.Clip.Value=1000
+        local b=c.Guns:BindWeapon(tool);b.Environment.LAS=3600
+        c.Lib.Flags.FarmAutoShoot=true;c.Lib.Flags.FarmSmartBursts=smart;c.A.ShotFeedbackAvailable=true
+        for i=1,40 do local z=c.Zombie("Target"..i,8+i*0.1,0);z.Humanoid.Health=40 end
+        c.A:SnapshotZombies();local pending={};local shots,waste,kills=0,0,0;local nextNative=100
+        for frame=0,2*fps-1 do
+            Now=100+frame/fps
+            for j=#pending,1,-1 do local event=pending[j]
+                if event.At<=Now then
+                    if event.H.Health<=0 then waste=waste+1 else event.H.Health=math.max(0,event.H.Health-50);if event.H.Health==0 then kills=kills+1 end end
+                    table.remove(pending,j)
+                end
+            end
+            c.A:PreRender(1/fps)
+            if c.A.MouseOwned and c.A.Target and Now+0.0000001>=nextNative then
+                shots=shots+1;tool.CurrentValues.Clip.Value=tool.CurrentValues.Clip.Value-1
+                table.insert(pending,{At=Now+0.08,H=c.A.Target.Humanoid})
+                c.A:ObserveShot(c.P,tool);nextNative=math.max(Now,nextNative+1/60)
+            end
+            c.A:Render()
+        end
+        return shots,waste,kills
+    end
+    for _,fps in ipairs({60,144,240}) do
+        local baseline,bw,bk=simulate(fps,false);local smart,sw,sk=simulate(fps,true)
+        assert(sw<bw);assert(smart<baseline);assert(sk>=bk-1)
+        print(string.format("SIM %d FPS / 80ms health delay: shots %d -> %d; overkill %d -> %d; kills %d -> %d",fps,baseline,smart,bw,sw,bk,sk))
+    end
+end)
+
+test("native charge-type updates are not overwritten by an active rapid-fire baseline",function()
+    local c=setup();c.A:Destroy();local t=c.Weapon("Changing")
+    c.Lib.Flags.GunRapidFire=true;local g=GunFactory(c.Lib,{SendNotification=function()end})
+    eq(t.CurrentValues.FireType.Value,"FullAuto");t.CurrentValues.FireType.Value="Charge"
+    g:ApplyTool(t);eq(t.CurrentValues.FireType.Value,"Charge");eq(t.CurrentValues.AttackSpeed.Value,300);g:Destroy()
+end)
+
+test("confirmed upgrades clear previously learned damage assumptions",function()
+    local c=setup();c.Weapon("Pistol");c.A.BurstEstimate={Value=20}
+    c.Shop.Pending={Weapon="Pistol",Level=c.Levels.Pistol["AP Rounds"]};c.Shop.Outcome="confirmed"
+    c.A:Upgrade(c.H,c.Root);eq(c.A.BurstEstimate,nil);eq(c.A.BurstPlan,nil)
 end)
 
 -- Input routing regression: production Library methods, mocked hitboxes only.

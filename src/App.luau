@@ -13,6 +13,7 @@ GunMods:Toggle({Title = "NO RECOIL", Flag = "GunNoRecoil"})
 
 local Farm = Main:Section("AUTOFARM", "Left")
 Farm:Toggle({Title = "AUTO SHOOT", Flag = "FarmAutoShoot"})
+Farm:Toggle({Title = "SMART BURSTS", Flag = "FarmSmartBursts", State = true})
 Farm:Toggle({Title = "AUTO RETREAT", Flag = "FarmKeepDistance"})
 Farm:Slider({Title = "SAFE DISTANCE (STUDS)", Flag = "FarmDistance", Symbol = "", Default = 24, Min = 5, Max = 100, Decimals = 1})
 Farm:Toggle({Title = "SHOW DISTANCE CIRCLE", Flag = "FarmShowCircle"})
@@ -36,6 +37,7 @@ Priority = Upgrade:Dropdown({Title = "PRIORITIZE UPGRADE", Flag = "UpgradePriori
 UpgradeMode = Upgrade:Dropdown({Title = "UPGRADE MODE", Flag = "UpgradeMode", List = {"Selected upgrade only", "All upgrades"}, Default = "Selected upgrade only"})
 Upgrade:Toggle({Title = "GO TO SHOP IF NEEDED", Flag = "UpgradeShopFallback", State = true})
 Upgrade:Toggle({Title = "NOTIFY WHEN COMPLETE", Flag = "UpgradeNotify", State = true})
+Upgrade:Slider({Title = "KEEP CASH FOR SUPPLIES", Flag = "FarmCashReserve", Symbol = "", Default = 0, Min = 0, Max = 5000, Decimals = 50})
 RefreshUpgradeControls(Library.Flags.UpgradeWeapon)
 
 local Camera = Main:Section("THIRD PERSON", "Right")

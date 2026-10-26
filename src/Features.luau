@@ -127,11 +127,15 @@ return function(Library: any, Window: any)
         local V = Tool:FindFirstChild("CurrentValues")
         if not V then return end
         local Suspended = self.Suspended or Paused()
+        local TypeValue = V:FindFirstChild("FireType")
+        local TypeRecord = TypeValue and self.Values[TypeValue]
+        local NativeType = TypeRecord and (TypeValue.Value ~= TypeRecord.Applied and TypeValue.Value or TypeRecord.Original) or TypeValue and TypeValue.Value
+        local Rapid = Flags.GunRapidFire == true and not Suspended and NativeType ~= "Charge"
         for _, Prefix in ipairs({"", "Alt"}) do
-            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Flags.GunRapidFire == true and not Suspended)
-            Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Flags.GunRapidFire == true and not Suspended)
+            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Rapid)
+            Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Rapid)
         end
-        Assign(V:FindFirstChild("FireType"), "FullAuto", Flags.GunRapidFire == true and not Suspended)
+        Assign(V:FindFirstChild("FireType"), "FullAuto", Rapid)
         local SpreadEnabled = Flags.GunNoSpread == true and not Suspended and B ~= nil and B.UpdateSpread ~= nil
         local SpreadChanged = false
         for _, Prefix in ipairs({"", "Zoom", "Alt", "AltZoom"}) do

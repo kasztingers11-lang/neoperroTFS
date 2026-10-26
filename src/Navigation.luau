@@ -22,16 +22,57 @@ return function()
         return W:Raycast(Position + Vector3.new(0, 4, 0), Vector3.new(0, -14, 0), Params)
     end
     function N:Separation(Position, Zombies)
-        local Distance, Away = math.huge, Vector3.zero
+        local Squared, Away = math.huge, Vector3.zero
         for _, Z in ipairs(Zombies) do
             if Z.Head.Parent and Z.Humanoid.Health > 0 then
                 local Delta = Flat(Position - Z.Head.Position)
-                local D = Delta.Magnitude
-                Distance = math.min(Distance, D)
-                Away = Away + Unit(Delta) / math.max(2, D)
+                Squared = math.min(Squared, Delta:Dot(Delta))
+            end
+        end
+        local Distance = math.sqrt(Squared)
+        local Band = math.max(20, Distance * 2)
+        for _, Z in ipairs(Zombies) do
+            if Z.Head.Parent and Z.Humanoid.Health > 0 then
+                local Delta = Flat(Position - Z.Head.Position)
+                local D2 = Delta:Dot(Delta)
+                if D2 <= Band * Band then Away = Away + Unit(Delta) / math.max(4, D2) end
             end
         end
         return Distance, Unit(Away)
+    end
+    function N:SweptGap(Start, Finish, Zombies, Speed)
+        local Delta = Flat(Finish - Start)
+        Speed = math.max(1, Speed or 16)
+        local Duration = math.min(2, Delta.Magnitude / Speed)
+        local Velocity = Unit(Delta) * Speed
+        local GapSquared = math.huge
+        for _, Z in ipairs(Zombies) do
+            if Z.Head.Parent and Z.Humanoid.Health > 0 then
+                local EnemyVelocity = Z.Head.AssemblyLinearVelocity
+                if typeof(EnemyVelocity) ~= "Vector3" or EnemyVelocity:Dot(EnemyVelocity) ~= EnemyVelocity:Dot(EnemyVelocity)
+                    or EnemyVelocity.Magnitude > 200 then EnemyVelocity = Vector3.zero end
+                local Offset = Flat(Start - Z.Head.Position)
+                local Relative = Velocity - Flat(EnemyVelocity)
+                local Denominator = Relative:Dot(Relative)
+                local Time = Denominator > 0.000001 and math.clamp(-Offset:Dot(Relative) / Denominator, 0, Duration) or 0
+                local Closest = Offset + Relative * Time
+                GapSquared = math.min(GapSquared, Closest:Dot(Closest))
+            end
+        end
+        return math.sqrt(GapSquared)
+    end
+    function N:RefillGap(Position, Zombies, Seconds)
+        local Nearest, Deficit = math.huge, 0
+        for _, Z in ipairs(Zombies) do
+            if Z.Head.Parent and Z.Humanoid.Health > 0 then
+                local Distance = Flat(Position - Z.Head.Position).Magnitude
+                local Speed = Z.Humanoid.WalkSpeed
+                Speed = type(Speed) == "number" and Speed == Speed and math.clamp(Speed, 0, 100) or 16
+                Nearest = math.min(Nearest, Distance)
+                Deficit = math.max(Deficit, 8 + Speed * (Seconds + 0.25) - Distance)
+            end
+        end
+        return Nearest < math.huge and math.max(10, Nearest + Deficit) or 10
     end
     function N:Segment(Root, Direction, Length, Params, FloorY)
         local Hit = W:Blockcast(CFrame.new(Root.Position + Vector3.new(0, 0.3, 0)),
@@ -49,11 +90,13 @@ return function()
         local Nearest = self:Separation(Root.Position, Zombies)
         local function Score(D)
             if not D or D.Magnitude < 0.01 then return nil end
-            local Valid, Clearance = self:Segment(Root, D, 8, Params, FloorY)
+            local Valid, Clearance = self:Segment(Root, D, self.LookAhead or 8, Params, FloorY)
             if not Valid then return nil end
-            local Safe = self:Separation(Root.Position + D * math.min(7, Clearance - 0.8), Zombies)
-            if Safe < math.max(1, math.min(Nearest - 1.5, 6)) then return nil end
-            local Value = math.min(Safe, Radius + 20) * 3 + D:Dot(Away) * 5 + Clearance
+            local Finish = Root.Position + D * math.min(self.LookAhead or 7, Clearance - 0.8)
+            local Safe = self:Separation(Finish, Zombies)
+            local Gap = self:SweptGap(Root.Position, Finish, Zombies, self.Speed)
+            if math.min(Safe, Gap) < math.max(1, math.min(Nearest - 1.5, 6)) then return nil end
+            local Value = math.min(Gap, Radius + 20) * 2 + math.min(Safe, Radius + 20) * 3 + D:Dot(Away) * 5 + Clearance
             if self.StuckDirection then Value = Value - math.max(0, D:Dot(self.StuckDirection)) * 18 end
             return Value, Safe
         end
@@ -113,7 +156,8 @@ return function()
                     local Safe, Length, MinDistance = true, 0, math.huge
                     local InitialDistance = self:Separation(Start, Zombies)
                     for J = 2, #Route do
-                        local Separation = self:Separation(Route[J].Position, Zombies)
+                        local Separation = math.min(self:Separation(Route[J].Position, Zombies),
+                            self:SweptGap(Route[J - 1].Position, Route[J].Position, Zombies, self.Speed))
                         MinDistance = math.min(MinDistance, Separation)
                         Length = Length + (Route[J].Position - Route[J - 1].Position).Magnitude
                         if Separation < math.min(8, math.max(1, InitialDistance - 2)) then Safe = false end
@@ -135,6 +179,9 @@ return function()
         self.Index = nil; self.RouteAt = nil; self.StuckDirection = nil; self.StuckUntil = nil; self.DirectClear = nil
     end
     function N:Update(H, Root, Zombies, Radius)
+        local Speed = H and H.WalkSpeed
+        self.Speed = type(Speed) == "number" and Speed == Speed and math.clamp(Speed, 1, 100) or 16
+        self.LookAhead = math.clamp(self.Speed * 0.35 + 3, 6, 12)
         local Nearest, Away = self:Separation(Root.Position, Zombies)
         self.Nearest = Nearest
         if not self.Active and Nearest >= Radius or self.Active and Nearest >= Radius + 8 then
@@ -176,7 +223,9 @@ return function()
                 end
                 Direction = Unit(Flat(Point.Position - Root.Position))
                 local Valid = self:Segment(Root, Direction, math.min(5, math.max(3, (Point.Position - Root.Position).Magnitude)), Params, Ground.Position.Y)
-                if not Valid then self.Route = nil; self.NextPlan = 0; Direction = nil end
+                local Finish = Root.Position + Direction * math.min(5, (Point.Position - Root.Position).Magnitude)
+                local Gap = self:SweptGap(Root.Position, Finish, Zombies, self.Speed)
+                if not Valid or Gap < math.max(1, math.min(Nearest - 1.5, 6)) then self.Route = nil; self.NextPlan = 0; Direction = nil end
             else self.Route = nil; self.NextPlan = 0 end
         end
         if not Direction or Direction.Magnitude < 0.01 then

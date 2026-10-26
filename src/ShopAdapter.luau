@@ -59,7 +59,7 @@ return function()
         self.Context = {Update = Update, Frame = NativeFrame, Information = NativeInfo}
         return self.Context
     end
-    function A:TryPurchase(Weapon, OrderedLevels)
+    function A:TryPurchase(Weapon, OrderedLevels, CashReserve)
         if not self.Alive or self.Pending or self.RestockPending or self.ReadyPending then return nil, "Waiting for confirmation" end
         if not self:BetweenRounds() then return nil, "Waiting for round end" end
         if not self:InShop() then return nil, "Enter the shop to upgrade" end
@@ -67,6 +67,9 @@ return function()
         local Tool = self:OwnedTool(Weapon)
         local Money = P:FindFirstChild("ReplicatedMoney")
         if not Tool or not Money then return nil, "Weapon is not ready" end
+        if CashReserve == nil then CashReserve = 0 end
+        if type(CashReserve) ~= "number" or CashReserve ~= CashReserve or math.abs(CashReserve) == math.huge then return nil, "Invalid cash reserve" end
+        CashReserve = math.max(0, CashReserve)
         local Context = self:GetContext()
         if not Context then return nil, "Shop version unsupported" end
         if Context.Frame.Visible then return nil, "Close the native shop menu" end
@@ -87,7 +90,7 @@ return function()
                     local Price = type(Text) == "string" and Text:match("^Buy:%s*%$([%d,]+)%s*$")
                     Price = Price and tonumber((Price:gsub(",", "")))
                     if Row and Row.Visible and Buy and Buy.Visible and Price and Price >= 0 then
-                        if Price > Money.Value then
+                        if Price + CashReserve > Money.Value then
                             Reason = "Waiting for cash ($" .. tostring(Price) .. ")"
                             -- All-upgrades mode may still buy a cheaper unlocked category.
                         else

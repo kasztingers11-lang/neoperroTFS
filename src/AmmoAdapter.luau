@@ -18,16 +18,21 @@ return function()
             or Remote.Name ~= "RemoteRefillAmmo" then return nil end
         return {Function = Fn, Manager = Manager}
     end
-    function A:Needs(Tool, Threshold)
+    function A:Ratio(Tool)
         local V = Tool and Tool:FindFirstChild("CurrentValues")
-        if not V or not V:FindFirstChild("Ammo") or not V:FindFirstChild("MaxAmmo") or V.MaxAmmo.Value <= 0 then return false end
+        if not V or not V:FindFirstChild("Ammo") or not V:FindFirstChild("MaxAmmo") or V.MaxAmmo.Value <= 0 then return math.huge, 0 end
         local Capacity = V.MaxAmmo.Value
         local Context = self:Context()
         if Context then
             local OK, Multi = pcall(Context.Manager.GetMulti, Context.Manager, "MaxAmmo", P, {Tool = Tool})
             if OK and type(Multi) == "number" and Multi > 0 and Multi < math.huge then Capacity = Capacity * Multi end
         end
-        return V.Ammo.Value >= 0 and V.Ammo.Value <= math.max(1, Capacity * math.clamp(Threshold or 20, 5, 90) / 100)
+        if V.Ammo.Value < 0 or Capacity ~= Capacity or Capacity >= math.huge then return math.huge, 0 end
+        return V.Ammo.Value / Capacity, Capacity
+    end
+    function A:Needs(Tool, Threshold)
+        local Ratio, Capacity = self:Ratio(Tool)
+        return Capacity > 0 and Ratio <= math.max(1 / Capacity, math.clamp(Threshold or 20, 5, 90) / 100)
     end
     function A:Eligible(Box, AllowEmpty)
         if not Box or not Box.Parent or not Box.PrimaryPart or not Box:FindFirstChild("Time")

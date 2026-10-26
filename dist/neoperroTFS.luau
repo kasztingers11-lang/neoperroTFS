@@ -3710,11 +3710,15 @@ return function(Library: any, Window: any)
         local V = Tool:FindFirstChild("CurrentValues")
         if not V then return end
         local Suspended = self.Suspended or Paused()
+        local TypeValue = V:FindFirstChild("FireType")
+        local TypeRecord = TypeValue and self.Values[TypeValue]
+        local NativeType = TypeRecord and (TypeValue.Value ~= TypeRecord.Applied and TypeValue.Value or TypeRecord.Original) or TypeValue and TypeValue.Value
+        local Rapid = Flags.GunRapidFire == true and not Suspended and NativeType ~= "Charge"
         for _, Prefix in ipairs({"", "Alt"}) do
-            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Flags.GunRapidFire == true and not Suspended)
-            Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Flags.GunRapidFire == true and not Suspended)
+            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Rapid)
+            Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Rapid)
         end
-        Assign(V:FindFirstChild("FireType"), "FullAuto", Flags.GunRapidFire == true and not Suspended)
+        Assign(V:FindFirstChild("FireType"), "FullAuto", Rapid)
         local SpreadEnabled = Flags.GunNoSpread == true and not Suspended and B ~= nil and B.UpdateSpread ~= nil
         local SpreadChanged = false
         for _, Prefix in ipairs({"", "Zoom", "Alt", "AltZoom"}) do
@@ -3903,7 +3907,7 @@ return function()
         self.Context = {Update = Update, Frame = NativeFrame, Information = NativeInfo}
         return self.Context
     end
-    function A:TryPurchase(Weapon, OrderedLevels)
+    function A:TryPurchase(Weapon, OrderedLevels, CashReserve)
         if not self.Alive or self.Pending or self.RestockPending or self.ReadyPending then return nil, "Waiting for confirmation" end
         if not self:BetweenRounds() then return nil, "Waiting for round end" end
         if not self:InShop() then return nil, "Enter the shop to upgrade" end
@@ -3911,6 +3915,9 @@ return function()
         local Tool = self:OwnedTool(Weapon)
         local Money = P:FindFirstChild("ReplicatedMoney")
         if not Tool or not Money then return nil, "Weapon is not ready" end
+        if CashReserve == nil then CashReserve = 0 end
+        if type(CashReserve) ~= "number" or CashReserve ~= CashReserve or math.abs(CashReserve) == math.huge then return nil, "Invalid cash reserve" end
+        CashReserve = math.max(0, CashReserve)
         local Context = self:GetContext()
         if not Context then return nil, "Shop version unsupported" end
         if Context.Frame.Visible then return nil, "Close the native shop menu" end
@@ -3931,7 +3938,7 @@ return function()
                     local Price = type(Text) == "string" and Text:match("^Buy:%s*%$([%d,]+)%s*$")
                     Price = Price and tonumber((Price:gsub(",", "")))
                     if Row and Row.Visible and Buy and Buy.Visible and Price and Price >= 0 then
-                        if Price > Money.Value then
+                        if Price + CashReserve > Money.Value then
                             Reason = "Waiting for cash ($" .. tostring(Price) .. ")"
                             -- All-upgrades mode may still buy a cheaper unlocked category.
                         else
@@ -4132,16 +4139,57 @@ return function()
         return W:Raycast(Position + Vector3.new(0, 4, 0), Vector3.new(0, -14, 0), Params)
     end
     function N:Separation(Position, Zombies)
-        local Distance, Away = math.huge, Vector3.zero
+        local Squared, Away = math.huge, Vector3.zero
         for _, Z in ipairs(Zombies) do
             if Z.Head.Parent and Z.Humanoid.Health > 0 then
                 local Delta = Flat(Position - Z.Head.Position)
-                local D = Delta.Magnitude
-                Distance = math.min(Distance, D)
-                Away = Away + Unit(Delta) / math.max(2, D)
+                Squared = math.min(Squared, Delta:Dot(Delta))
+            end
+        end
+        local Distance = math.sqrt(Squared)
+        local Band = math.max(20, Distance * 2)
+        for _, Z in ipairs(Zombies) do
+            if Z.Head.Parent and Z.Humanoid.Health > 0 then
+                local Delta = Flat(Position - Z.Head.Position)
+                local D2 = Delta:Dot(Delta)
+                if D2 <= Band * Band then Away = Away + Unit(Delta) / math.max(4, D2) end
             end
         end
         return Distance, Unit(Away)
+    end
+    function N:SweptGap(Start, Finish, Zombies, Speed)
+        local Delta = Flat(Finish - Start)
+        Speed = math.max(1, Speed or 16)
+        local Duration = math.min(2, Delta.Magnitude / Speed)
+        local Velocity = Unit(Delta) * Speed
+        local GapSquared = math.huge
+        for _, Z in ipairs(Zombies) do
+            if Z.Head.Parent and Z.Humanoid.Health > 0 then
+                local EnemyVelocity = Z.Head.AssemblyLinearVelocity
+                if typeof(EnemyVelocity) ~= "Vector3" or EnemyVelocity:Dot(EnemyVelocity) ~= EnemyVelocity:Dot(EnemyVelocity)
+                    or EnemyVelocity.Magnitude > 200 then EnemyVelocity = Vector3.zero end
+                local Offset = Flat(Start - Z.Head.Position)
+                local Relative = Velocity - Flat(EnemyVelocity)
+                local Denominator = Relative:Dot(Relative)
+                local Time = Denominator > 0.000001 and math.clamp(-Offset:Dot(Relative) / Denominator, 0, Duration) or 0
+                local Closest = Offset + Relative * Time
+                GapSquared = math.min(GapSquared, Closest:Dot(Closest))
+            end
+        end
+        return math.sqrt(GapSquared)
+    end
+    function N:RefillGap(Position, Zombies, Seconds)
+        local Nearest, Deficit = math.huge, 0
+        for _, Z in ipairs(Zombies) do
+            if Z.Head.Parent and Z.Humanoid.Health > 0 then
+                local Distance = Flat(Position - Z.Head.Position).Magnitude
+                local Speed = Z.Humanoid.WalkSpeed
+                Speed = type(Speed) == "number" and Speed == Speed and math.clamp(Speed, 0, 100) or 16
+                Nearest = math.min(Nearest, Distance)
+                Deficit = math.max(Deficit, 8 + Speed * (Seconds + 0.25) - Distance)
+            end
+        end
+        return Nearest < math.huge and math.max(10, Nearest + Deficit) or 10
     end
     function N:Segment(Root, Direction, Length, Params, FloorY)
         local Hit = W:Blockcast(CFrame.new(Root.Position + Vector3.new(0, 0.3, 0)),
@@ -4159,11 +4207,13 @@ return function()
         local Nearest = self:Separation(Root.Position, Zombies)
         local function Score(D)
             if not D or D.Magnitude < 0.01 then return nil end
-            local Valid, Clearance = self:Segment(Root, D, 8, Params, FloorY)
+            local Valid, Clearance = self:Segment(Root, D, self.LookAhead or 8, Params, FloorY)
             if not Valid then return nil end
-            local Safe = self:Separation(Root.Position + D * math.min(7, Clearance - 0.8), Zombies)
-            if Safe < math.max(1, math.min(Nearest - 1.5, 6)) then return nil end
-            local Value = math.min(Safe, Radius + 20) * 3 + D:Dot(Away) * 5 + Clearance
+            local Finish = Root.Position + D * math.min(self.LookAhead or 7, Clearance - 0.8)
+            local Safe = self:Separation(Finish, Zombies)
+            local Gap = self:SweptGap(Root.Position, Finish, Zombies, self.Speed)
+            if math.min(Safe, Gap) < math.max(1, math.min(Nearest - 1.5, 6)) then return nil end
+            local Value = math.min(Gap, Radius + 20) * 2 + math.min(Safe, Radius + 20) * 3 + D:Dot(Away) * 5 + Clearance
             if self.StuckDirection then Value = Value - math.max(0, D:Dot(self.StuckDirection)) * 18 end
             return Value, Safe
         end
@@ -4223,7 +4273,8 @@ return function()
                     local Safe, Length, MinDistance = true, 0, math.huge
                     local InitialDistance = self:Separation(Start, Zombies)
                     for J = 2, #Route do
-                        local Separation = self:Separation(Route[J].Position, Zombies)
+                        local Separation = math.min(self:Separation(Route[J].Position, Zombies),
+                            self:SweptGap(Route[J - 1].Position, Route[J].Position, Zombies, self.Speed))
                         MinDistance = math.min(MinDistance, Separation)
                         Length = Length + (Route[J].Position - Route[J - 1].Position).Magnitude
                         if Separation < math.min(8, math.max(1, InitialDistance - 2)) then Safe = false end
@@ -4245,6 +4296,9 @@ return function()
         self.Index = nil; self.RouteAt = nil; self.StuckDirection = nil; self.StuckUntil = nil; self.DirectClear = nil
     end
     function N:Update(H, Root, Zombies, Radius)
+        local Speed = H and H.WalkSpeed
+        self.Speed = type(Speed) == "number" and Speed == Speed and math.clamp(Speed, 1, 100) or 16
+        self.LookAhead = math.clamp(self.Speed * 0.35 + 3, 6, 12)
         local Nearest, Away = self:Separation(Root.Position, Zombies)
         self.Nearest = Nearest
         if not self.Active and Nearest >= Radius or self.Active and Nearest >= Radius + 8 then
@@ -4286,7 +4340,9 @@ return function()
                 end
                 Direction = Unit(Flat(Point.Position - Root.Position))
                 local Valid = self:Segment(Root, Direction, math.min(5, math.max(3, (Point.Position - Root.Position).Magnitude)), Params, Ground.Position.Y)
-                if not Valid then self.Route = nil; self.NextPlan = 0; Direction = nil end
+                local Finish = Root.Position + Direction * math.min(5, (Point.Position - Root.Position).Magnitude)
+                local Gap = self:SweptGap(Root.Position, Finish, Zombies, self.Speed)
+                if not Valid or Gap < math.max(1, math.min(Nearest - 1.5, 6)) then self.Route = nil; self.NextPlan = 0; Direction = nil end
             else self.Route = nil; self.NextPlan = 0 end
         end
         if not Direction or Direction.Magnitude < 0.01 then
@@ -4326,16 +4382,21 @@ return function()
             or Remote.Name ~= "RemoteRefillAmmo" then return nil end
         return {Function = Fn, Manager = Manager}
     end
-    function A:Needs(Tool, Threshold)
+    function A:Ratio(Tool)
         local V = Tool and Tool:FindFirstChild("CurrentValues")
-        if not V or not V:FindFirstChild("Ammo") or not V:FindFirstChild("MaxAmmo") or V.MaxAmmo.Value <= 0 then return false end
+        if not V or not V:FindFirstChild("Ammo") or not V:FindFirstChild("MaxAmmo") or V.MaxAmmo.Value <= 0 then return math.huge, 0 end
         local Capacity = V.MaxAmmo.Value
         local Context = self:Context()
         if Context then
             local OK, Multi = pcall(Context.Manager.GetMulti, Context.Manager, "MaxAmmo", P, {Tool = Tool})
             if OK and type(Multi) == "number" and Multi > 0 and Multi < math.huge then Capacity = Capacity * Multi end
         end
-        return V.Ammo.Value >= 0 and V.Ammo.Value <= math.max(1, Capacity * math.clamp(Threshold or 20, 5, 90) / 100)
+        if V.Ammo.Value < 0 or Capacity ~= Capacity or Capacity >= math.huge then return math.huge, 0 end
+        return V.Ammo.Value / Capacity, Capacity
+    end
+    function A:Needs(Tool, Threshold)
+        local Ratio, Capacity = self:Ratio(Tool)
+        return Capacity > 0 and Ratio <= math.max(1 / Capacity, math.clamp(Threshold or 20, 5, 90) / 100)
     end
     function A:Eligible(Box, AllowEmpty)
         if not Box or not Box.Parent or not Box.PrimaryPart or not Box:FindFirstChild("Time")
@@ -4565,9 +4626,10 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     function A:ReleaseAim()
         self:ReleaseMouse()
         self:RestoreView()
-        self.Target = nil; self.AimedAt = nil
+        self.Target = nil; self.AimedAt = nil; self.BurstPlan = nil
     end
     function A:ScanInventory()
+        if self.BindShotFeedback then self:BindShotFeedback() end
         local Owned, Names = {}, {"Select weapon"}
         local function Visit(Parent, Mirror)
             if not Parent then return end
@@ -4689,29 +4751,45 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:SelectTarget(Origin, Range, Tool, ThrottleSearch)
         local Folder = W:FindFirstChild("Zombies")
+        local RangeSquared = Range * Range
         local function Valid(Z)
-            return Folder ~= nil and Z and Z.Model.Parent == Folder and Z.Head.Parent and Z.Humanoid.Health > 0
-                and (Z.Head.Position - Origin).Magnitude <= Range
+            if not Folder or not Z or Z.Model.Parent ~= Folder or not Z.Head.Parent or Z.Humanoid.Health <= 0 then return false end
+            local Delta = Z.Head.Position - Origin
+            return Delta:Dot(Delta) <= RangeSquared
         end
-        if Valid(self.Target) and self:Visible(Origin, self.Target, Tool) then return self.Target end
-        local Previous = self.Target
-        self.Target = nil
-        local Now = os.clock()
+        local Now, Used = os.clock(), 0
+        self.OccludedUntil = self.OccludedUntil or setmetatable({}, {__mode = "k"})
+        local Cooldown = math.max(0.25, math.ceil(#self.Zombies / 8) / 30 + 0.1)
+        if Valid(self.Target) then
+            Used = 1
+            if self:Visible(Origin, self.Target, Tool) then return self.Target end
+            self.OccludedUntil[self.Target.Model] = Now + Cooldown
+        end
+        local Previous = self.Target; self.Target = nil
         if ThrottleSearch and not Previous and Now < (self.NextTargetSearch or 0) then return nil end
         self.NextTargetSearch = Now + 1 / 30
+        local Budget = ThrottleSearch and 8 - Used or math.huge
         local Candidates = {}
+        local function Before(Rank, Distance, Other) return Rank < Other.Rank or Rank == Other.Rank and Distance < Other.Distance end
         for _, Z in ipairs(self.Zombies) do
-            if Valid(Z) then
+            if Valid(Z) and (not ThrottleSearch or Now >= (self.OccludedUntil[Z.Model] or 0)) then
                 local Delta = Z.Head.Position - Origin
-                table.insert(Candidates, {Zombie = Z, Distance = Delta:Dot(Delta)})
+                local Distance = Delta:Dot(Delta)
+                local Rank = ThrottleSearch and (self.OccludedUntil[Z.Model] or -math.huge) or 0
+                if not ThrottleSearch then
+                    table.insert(Candidates, {Zombie = Z, Distance = Distance, Rank = Rank})
+                elseif #Candidates < Budget or Before(Rank, Distance, Candidates[#Candidates]) then
+                    local Index = #Candidates + 1
+                    while Index > 1 and Before(Rank, Distance, Candidates[Index - 1]) do Index = Index - 1 end
+                    table.insert(Candidates, Index, {Zombie = Z, Distance = Distance, Rank = Rank})
+                    if #Candidates > Budget then table.remove(Candidates) end
+                end
             end
         end
-        table.sort(Candidates, function(X, Y) return X.Distance < Y.Distance end)
+        if not ThrottleSearch then table.sort(Candidates, function(X, Y) return X.Distance < Y.Distance end) end
         for _, Candidate in ipairs(Candidates) do
-            if self:Visible(Origin, Candidate.Zombie, Tool) then
-                self.Target = Candidate.Zombie
-                return self.Target
-            end
+            if self:Visible(Origin, Candidate.Zombie, Tool) then self.Target = Candidate.Zombie; return self.Target end
+            self.OccludedUntil[Candidate.Zombie.Model] = Now + Cooldown
         end
         return nil
     end
@@ -4792,6 +4870,65 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local ActualRay = Camera:ScreenPointToRay(Mouse.X, Mouse.Y, 0)
         self.AimError = math.deg(math.acos(math.clamp(ActualRay.Direction:Dot((Target.Head.Position - Origin).Unit), -1, 1)))
     end
+    function A:FireInterval(Tool, Binding)
+        local Rate = Number(Binding and Binding.Environment.LAS, Number(Value(Tool, "AttackSpeed", 300), 300, 1, 7200), 1, 7200)
+        if Flags.GunRapidFire and not Guns.Suspended then Rate = math.min(Rate, Number(Flags.GunFireRate, 60, 1, 120) * 60) end
+        return 60 / Rate
+    end
+    function A:BurstGate(Tool, Binding)
+        if Flags.FarmSmartBursts ~= true or not self.ShotFeedbackAvailable or not self.Target then return true end
+        local Target = self.Target
+        local HP = Target.Humanoid.Health
+        if HP <= 0 then return false end
+        local Armor = Target.Model:FindFirstChild("HeadArmour") ~= nil
+        local Damage = Value(Tool, "Damage", 0)
+        local Plan = self.BurstPlan
+        if not Plan or Plan.Tool ~= Tool or Plan.Model ~= Target.Model or Plan.Armor ~= Armor or Plan.Damage ~= Damage then
+            local Previous = self.BurstEstimate
+            local Estimate = Previous and Previous.Tool == Tool and Previous.Armor == Armor and Previous.Damage == Damage and os.clock() - (Previous.At or -math.huge) < 15 and Previous.Value or nil
+            Plan = {Tool = Tool, Model = Target.Model, Armor = Armor, Damage = Damage, HP = HP, Pending = {}, Estimate = Estimate, Delay = self.FeedbackDelay or 0.12}
+            self.BurstPlan = Plan
+        end
+        local Now = os.clock()
+        local Delta = Plan.HP - HP
+        if Delta > 0 and #Plan.Pending > 0 then
+            local Count = #Plan.Pending
+            -- Learn only uncensored single-shot health changes. A killing hit
+            -- reveals remaining health, not the weapon's actual damage.
+            if Count == 1 and HP > 0 then
+                Plan.Estimate = Plan.Estimate and math.min(Plan.Estimate, Delta) or Delta
+                self.BurstEstimate = {Tool = Tool, Armor = Armor, Damage = Damage, Value = Plan.Estimate, At = Now}
+            end
+            local Sample = math.clamp(Now - Plan.Pending[1], 0.02, 0.4)
+            self.FeedbackDelay = self.FeedbackDelay and self.FeedbackDelay * 0.8 + Sample * 0.2 or Sample
+            Plan.Delay = self.FeedbackDelay
+            local Confirmed = Plan.Estimate and math.max(1, math.floor(Delta / Plan.Estimate + 0.25)) or 1
+            for _ = 1, math.min(Count, Confirmed) do table.remove(Plan.Pending, 1) end
+        elseif HP > Plan.HP then
+            -- Heals/health resets invalidate in-flight damage assumptions.
+            Plan.Pending = {}; Plan.Estimate = nil
+        end
+        Plan.HP = HP
+        local Interval = self:FireInterval(Tool, Binding)
+        local Window = math.clamp(Plan.Delay * 1.5 + Interval, 0.08, 0.5)
+        local Expired = false
+        while Plan.Pending[1] and Now - Plan.Pending[1] >= Window do table.remove(Plan.Pending, 1); Expired = true end
+        if Expired then
+            Plan.Estimate = nil; self.BurstEstimate = nil -- resume with a single probe, not an assumed lethal burst
+        end
+        local Need = Plan.Estimate and math.max(1, math.ceil(HP / Plan.Estimate)) or 1
+        local Limit = math.min(Need, math.clamp(math.ceil(Window / Interval), 1, 8))
+        Plan.Needed = Need; Plan.Limit = Limit; Plan.Window = Window
+        return #Plan.Pending < Limit
+    end
+    function A:ObserveShot(Player, Tool)
+        if not self.Alive or Player ~= P or not self.MouseOwned or Flags.FarmSmartBursts ~= true then return end
+        local Plan = self.BurstPlan
+        if not Plan or Plan.Tool ~= Tool or not self.Target or Plan.Model ~= self.Target.Model then return end
+        if #Plan.Pending < 16 then table.insert(Plan.Pending, os.clock()) end
+        -- Native shot events count real shots, not attempted mouse presses.
+        if not self:BurstGate(Tool, Guns.Weapons[Tool]) then self:ReleaseMouse() end
+    end
     function A:Shoot(Tool)
         local B = Guns.Weapons[Tool] or Guns:BindWeapon(Tool)
         if not B then self:ReleaseMouse(); Status("FarmStatus", "Waiting for native gun script"); return end
@@ -4811,6 +4948,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         local FireType = Value(Tool, "FireType", "Single")
         if FireType == "Charge" then self:ReleaseMouse(); Status("FarmStatus", "Charge weapons need manual fire"); return end
+        if not self:BurstGate(Tool, B) then self:ReleaseMouse(); return end
         local Native = not self:NativeFocused() and Flags.FarmBackground == true
         if Native and type(B.Environment.mouse1Down) ~= "boolean" then
             self:ReleaseMouse(); Status("FarmStatus", "Background fire unavailable"); return
@@ -4825,7 +4963,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             self.MouseOwned = true; self.PressedBinding = B; self.MouseMode = Native and "native" or "os"
             local Now = os.clock()
             local Frame = Number(self.FrameDelta, 1 / 60, 1 / 1000, 1 / 15)
-            local Interval = math.max(Frame * 2, 60 / Number(B.Environment.LAS or Value(Tool, "AttackSpeed", 300), 300, 1, 7200))
+            local Interval = math.max(Frame * 2, self:FireInterval(Tool, B))
             self.PressRelease = Now + math.min(0.035, math.max(Frame * 0.5, Interval * 0.3))
             -- Keep elapsed-time cadence without replaying missed shots after a hitch.
             self.NextPress = (self.NextPress > Now - Interval and self.NextPress or Now) + Interval
@@ -4917,12 +5055,16 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if Flags.FarmTopUp and self.Shop:BetweenRounds() then Threshold = 90 end
         if T and self.Refill:Needs(T, Threshold) then return T end
         local Bag = P:FindFirstChildOfClass("Backpack")
+        local Best, Lowest = nil, math.huge
         if Bag then
             for _, Tool in ipairs(Bag:GetChildren()) do
-                if Tool:IsA("Tool") and Tool:FindFirstChild("GunScript") and self.Refill:Needs(Tool, Threshold) then return Tool end
+                if Tool:IsA("Tool") and Tool:FindFirstChild("GunScript") and self.Refill:Needs(Tool, Threshold) then
+                    local Ratio = self.Refill.Ratio and self.Refill:Ratio(Tool) or Value(Tool, "Ammo", 0) / math.max(1, Value(Tool, "MaxAmmo", 1))
+                    if Ratio < Lowest or Ratio == Lowest and (not Best or Tool.Name < Best.Name) then Best = Tool; Lowest = Ratio end
+                end
             end
         end
-        return nil
+        return Best
     end
     function A:HasAmmunition()
         for _, Parent in ipairs({P.Character, P:FindFirstChildOfClass("Backpack")}) do
@@ -4973,11 +5115,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Context = self.Refill:Context()
         if not Context then Status("AmmoStatus", "Native refill unavailable"); return false end
         local Duration = self.Refill:Duration(Box, Context)
-        local Speed = 0
-        for _, Z in ipairs(self.Zombies) do
-            if Z.Head.Parent and Z.Humanoid.Health > 0 then Speed = math.max(Speed, Number(Z.Humanoid.WalkSpeed, 16, 0, 100)) end
-        end
-        local SafeGap = math.max(10, 8 + Duration * Speed * 1.2)
+        local SafeGap = self.Navigation:RefillGap(Root.Position, self.Zombies, Duration)
         if Near < SafeGap then
             Status("AmmoStatus", "Making space for native refill")
             if Flags.FarmKeepDistance then self.ResupplyEscapeRadius = SafeGap; self:Kite(H, Root, SafeGap); return true end
@@ -5053,6 +5191,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     function A:Upgrade(H, Root)
         local State, Pending = self.Shop:Poll()
         if State == "confirmed" then
+            self.BurstPlan = nil; self.BurstEstimate = nil
             Guns:SetSuspended(false)
             self.LastConfirmed = Pending.Weapon .. "\0" .. Pending.Level.Name
             self.LastBuy = os.clock()
@@ -5087,7 +5226,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if os.clock() - self.LastBuy >= 0.5 then
             self.LastBuy = os.clock()
             Guns:SetSuspended(true)
-            local OK, Purchase, Reason = pcall(self.Shop.TryPurchase, self.Shop, Flags.UpgradeWeapon, List)
+            local OK, Purchase, Reason = pcall(self.Shop.TryPurchase, self.Shop, Flags.UpgradeWeapon, List, Number(Flags.FarmCashReserve, 0, 0, 1000000))
             if not OK then
                 if not self.Shop.Pending then Guns:SetSuspended(false) end
                 self:StopUpgrade("Native shop error; auto upgrade stopped", false)
@@ -5319,9 +5458,11 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not A.Scanning then A.SavedWeapon = nil; A.SavedPriority = nil end
         A:ScanPriorities(); A:CancelTravel()
     end)
+    Own("FarmCashReserve", function() A.UpgradeIdle = false; A.ReadyQuietSince = nil end)
     Own("UpgradePriority", function() A.SavedPriority = nil; A.UpgradeIdle = false; A.ReadyQuietSince = nil end)
     Own("UpgradeEnabled", function(V) A.Notices["upgrade-stop"] = nil; if not V then A:CancelTravel() end end)
     Own("UpgradeShopFallback", function(V) if not V then A:CancelTravel() end end)
+    Own("FarmSmartBursts", function() A:ReleaseMouse(); A.BurstPlan = nil; A.BurstEstimate = nil end)
     Own("FarmAutoShoot", function(V) if not V then A:ReleaseAim() end end)
     Own("FarmKeepDistance", function(V) if not V then A:StopMovement(); A.Navigation:Reset() end end)
     Own("FarmAutoRefill", function(V) if not V and A.TravelPurpose == "ammo" then A:CancelTravel() end end)
@@ -5345,6 +5486,16 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         A.WindowFocused = true
         A:ReleaseMouse(); A:Sprint(false); A:CameraState()
     end)
+    function A:BindShotFeedback()
+        local Scripts = P:FindFirstChild("PlayerScripts")
+        local Manager = Scripts and Scripts:FindFirstChild("LocalVisualManager")
+        local Event = Manager and Manager:FindFirstChild("LocalFireEvent")
+        if Event == self.ShotEvent then return end
+        if self.ShotConnection then self.ShotConnection:Disconnect(); self.ShotConnection = nil end
+        self.ShotEvent = Event; self.ShotFeedbackAvailable = Event ~= nil
+        self.BurstPlan = nil
+        if Event then self.ShotConnection = Connect(Event.Event, function(Player, Tool) A:ObserveShot(Player, Tool) end) end
+    end
     A:Watch("Character", P.Character)
     A:Watch("Backpack", P:FindFirstChildOfClass("Backpack"))
     A:Watch("Backgear", P:FindFirstChild("Backgear")); A:Watch("Upgrades", P:FindFirstChild("Upgrades"))
@@ -5661,6 +5812,7 @@ GunMods:Toggle({Title = "NO RECOIL", Flag = "GunNoRecoil"})
 
 local Farm = Main:Section("AUTOFARM", "Left")
 Farm:Toggle({Title = "AUTO SHOOT", Flag = "FarmAutoShoot"})
+Farm:Toggle({Title = "SMART BURSTS", Flag = "FarmSmartBursts", State = true})
 Farm:Toggle({Title = "AUTO RETREAT", Flag = "FarmKeepDistance"})
 Farm:Slider({Title = "SAFE DISTANCE (STUDS)", Flag = "FarmDistance", Symbol = "", Default = 24, Min = 5, Max = 100, Decimals = 1})
 Farm:Toggle({Title = "SHOW DISTANCE CIRCLE", Flag = "FarmShowCircle"})
@@ -5684,6 +5836,7 @@ Priority = Upgrade:Dropdown({Title = "PRIORITIZE UPGRADE", Flag = "UpgradePriori
 UpgradeMode = Upgrade:Dropdown({Title = "UPGRADE MODE", Flag = "UpgradeMode", List = {"Selected upgrade only", "All upgrades"}, Default = "Selected upgrade only"})
 Upgrade:Toggle({Title = "GO TO SHOP IF NEEDED", Flag = "UpgradeShopFallback", State = true})
 Upgrade:Toggle({Title = "NOTIFY WHEN COMPLETE", Flag = "UpgradeNotify", State = true})
+Upgrade:Slider({Title = "KEEP CASH FOR SUPPLIES", Flag = "FarmCashReserve", Symbol = "", Default = 0, Min = 0, Max = 5000, Decimals = 50})
 RefreshUpgradeControls(Library.Flags.UpgradeWeapon)
 
 local Camera = Main:Section("THIRD PERSON", "Right")
