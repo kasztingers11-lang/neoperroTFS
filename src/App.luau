@@ -64,6 +64,8 @@ Control:Button({Title = "STOP AUTOMATION", Callback = function() if Library.Auto
 Control:Toggle({Title = "AUTO START ROUND", Flag = "FarmAutoReady"})
 
 local Visuals = Window:Tab("VISUALS")
+local World = Visuals:Section("WORLD", "Right")
+World:Toggle({Title = "FULLBRIGHT", Flag = "VisualFullbright", State = true})
 local Impact = Visuals:Section("SHOT EFFECTS", "Left")
 Impact:Slider({Title = "EFFECT INTENSITY", Flag = "VisualIntensity", Symbol = "", Default = 2, Min = 1, Max = 3, Decimals = 0.1})
 Impact:Toggle({Title = "BULLET TRACERS", Flag = "VisualTracers", State = true})

@@ -1425,7 +1425,7 @@ test("App initializes gameplay and all three tabs without unsupported slider met
     eq(LoadApp(env),lib);eq(initialized,3);eq(#lib.Tabs,3)
     eq(lib.Tabs[1].Name,"MAIN");eq(lib.Tabs[2].Name,"VISUALS");eq(lib.Tabs[3].Name,"SETTINGS")
     eq(lib.Items.FarmMainWeapon.Section.Tab.Name,"MAIN");eq(lib.Items.FarmBackupWeapon.Section.Tab.Name,"MAIN")
-    eq(lib.Items.GunUsePresets,nil);eq(lib.Items.GunPresetWeapon,nil);eq(lib.Items.GunPresetRate,nil)
+    eq(lib.Items.GunUsePresets,nil);eq(lib.Items.GunPresetWeapon,nil);eq(lib.Items.GunPresetRate,nil);eq(lib.Flags.VisualFullbright,true)
     assert(lib.MenuKeyButton and lib.SaveButton and lib.LoadButton and lib.Visuals and lib.Automation)
     lib.RefreshLoadout({"Select weapon","Pistol"});eq(lib.Items.FarmMainWeapon.List[2],"Pistol")
 end)
@@ -1504,6 +1504,70 @@ test("incomplete replacement events cannot disable visuals or shot tracking",fun
     local bad=instance("LocalFireEvent","Folder",parent);c.V:BindSignals(true);eq(c.V.SignalObjects.Fire,nil);eq(c.V.Alive,true)
     parent:Remove(bad);local fresh=instance("LocalFireEvent","BindableEvent",parent,{Event=signal()})
     c.V:BindSignals(true);eq(c.V.SignalObjects.Fire,fresh);c.V:Destroy()
+end)
+
+test("committed ammo destination survives expired route scoring while walking",function()
+    local c=setup();local box=instance("AmmoBox","Model",c.World)
+    box.PrimaryPart=instance("Handle","Part",box,{Position=Vector3.new(40,3,0)})
+    c.A.TravelPurpose="ammo";c.A.AmmoDestination=box;c.A.Route={{Position=c.Root.Position},{Position=Vector3.new(35,3,0)}}
+    c.A.SupplyCache={At=Now-10,Position=Vector3.new(-20,3,0)}
+    c.Refill.Nearest=function()error("committed trip must not restart scoring")end
+    local selected,d=c.A:SupplyBox(c.H,c.Root);eq(selected,box);eq(d,40)
+    c.Root.Position=Vector3.new(20,3,0);eq(c.A:SupplyBox(c.H,c.Root),box);eq(c.A.Route[2].Position.X,35)
+end)
+
+test("ammo travel skips passed waypoints and backs off a stalled corner",function()
+    local c=setup();local goal=Vector3.new(20,3,0)
+    c.A.TravelPurpose="ammo";c.A.Route={{Position=Vector3.new(0,3,0)},{Position=Vector3.new(4,3,0)},{Position=goal}}
+    c.A.Waypoint=2;c.A.RouteAt=Now;c.A.ProgressPosition=c.Root.Position;c.A.ProgressAt=Now
+    c.Root.Position=Vector3.new(8,3,0);c.A:TravelToPoint(c.H,c.Root,goal,"ammo","AmmoStatus","walking")
+    eq(c.A.Waypoint,3);assert(c.A.MoveDirection.X>0)
+    c.A.ProgressPosition=c.Root.Position;Now=Now+1.6
+    c.A:TravelToPoint(c.H,c.Root,goal,"ammo","AmmoStatus","walking")
+    eq(c.A.Route,nil);assert(c.A.PathFailedUntil>Now);eq(c.A.MoveDirection,nil)
+    local tasks=#Tasks;c.A:TravelToPoint(c.H,c.Root,goal,"ammo","AmmoStatus","walking");eq(#Tasks,tasks)
+end)
+
+test("native magazine reload and box refill cannot start concurrently",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);t.CurrentValues.Ammo.Value=0
+    c.Lib.Flags.FarmAutoRefill=true;c.A.Reloading=true
+    local box=instance("AmmoBox","Model",c.World);box.PrimaryPart=instance("Base","Part",box,{Position=Vector3.new(3,3,0)})
+    c.Refill.Nearest=function()return box,3 end;c.Refill.Begin=function()error("overlapping interaction")end
+    c.A:AutoRefill(c.H,c.Root);eq(c.A.AmmoStatus,"Waiting for native magazine reload")
+end)
+
+test("rejected native refills use increasing box and interaction backoff",function()
+    local c=ammoFixture();c.Reject=true
+    assert(c.Ammo:Begin(c.Tool,c.Box,c.Root));flush();eq(c.Ammo:Poll(),"failed")
+    eq(c.Ammo.BlockedUntil[c.Box],Now+8);Now=Now+8.1
+    assert(c.Ammo:Begin(c.Tool,c.Box,c.Root));flush();eq(c.Ammo:Poll(),"failed")
+    eq(c.Ammo.BlockedUntil[c.Box],Now+16);eq(c.Ammo.NextTry,Now+16)
+end)
+
+test("fullbright restores owned lighting and never changes gameplay clock",function()
+    local c=visualFixture();local light=game:GetService("Lighting")
+    light.Brightness=1;light.Ambient="original";light.OutdoorAmbient="outdoor";light.GlobalShadows=true;light.FogEnd=200;light.ClockTime=23
+    c.Lib.Flags.VisualFullbright=true;c.V:Refresh();eq(light.Brightness,3);eq(light.GlobalShadows,false);eq(light.ClockTime,23)
+    light.Brightness=1.5;c.V:SetLighting(true);eq(light.Brightness,3)
+    c.Lib.Flags.VisualFullbright=false;c.V:Refresh();eq(light.Brightness,1.5);eq(light.Ambient,"original");eq(light.FogEnd,200);eq(light.ClockTime,23)
+    c.Lib.Flags.VisualFullbright=true;c.V:Refresh();c.V:Destroy();eq(light.GlobalShadows,true);eq(light.Brightness,1.5)
+end)
+
+test("tracers clip a behind-camera muzzle and chams flash only the hit zombie",function()
+    local c=visualFixture();local z=c.Zombie("Target",10,0)
+    c.World.CurrentCamera.WorldToViewportPoint=function(_,point)return Vector3.new(point.X,point.Y,point.Z),point.Z>0 end
+    c.V:AddTracer(Vector3.new(0,0,-1),Vector3.new(10,0,10));c.V:Render();eq(c.V.Tracers[1].Core.Visible,true)
+    c.V:AddCham(z.Model);c.V:Render();eq(c.V.Chams[z.Model].Phase,0)
+    Now=Now+0.07;c.V:Render();eq(c.V.Chams[z.Model].Phase,1)
+    c.V:AddCham(c.P.Character);eq(c.V.Chams[c.P.Character],nil);c.V:Destroy()
+end)
+
+test("failed ammo approach rotates away from the same blocked corner",function()
+    local c=setup();local box=instance("AmmoBox","Model",c.World)
+    box.PrimaryPart=instance("Handle","Part",box,{Position=Vector3.new(20,3,0)})
+    local first=c.A:AmmoGoal(box,c.Root.Position);eq(first.X,17);eq(first.Z,0)
+    c.A.AmmoApproaches={[box]=1};local second=c.A:AmmoGoal(box,c.Root.Position)
+    eq(second.X,20);eq(second.Z,-3);assert(second~=first)
 end)
 
 print(string.format("%d passed, %d failed",passed,failed))

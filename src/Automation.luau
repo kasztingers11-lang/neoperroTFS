@@ -546,10 +546,26 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Route = self.Route
         if Route then
             local Point = Route[self.Waypoint]
-            if Point and (Root.Position - Point.Position).Magnitude < 3 then self.Waypoint = self.Waypoint + 1; Point = Route[self.Waypoint] end
-            if not Point or os.clock() - self.RouteAt > 8 then self.Route = nil; self:StopMovement(); return end
+            local function Reached()
+                if not Point then return false end
+                if (Root.Position - Point.Position).Magnitude < 2.5 then return true end
+                local Previous = Route[self.Waypoint - 1]
+                if not Previous then return false end
+                local Segment = Flat(Point.Position - Previous.Position)
+                if Segment.Magnitude < 0.01 then return true end
+                local Offset = Flat(Root.Position - Point.Position)
+                local Forward = Segment.Unit
+                return Offset:Dot(Forward) >= 0 and (Offset - Forward * Offset:Dot(Forward)).Magnitude < 2.5
+            end
+            while Reached() do
+                if Point.Action == Enum.PathWaypointAction.Jump then H.Jump = true end
+                self.Waypoint = self.Waypoint + 1; Point = Route[self.Waypoint]
+            end
+            if not Point or os.clock() - self.RouteAt > 30 then
+                self.Route = nil; self.PathFailedUntil = os.clock() + 2; self:StopMovement(); return
+            end
             if os.clock() - self.ProgressAt >= 1.5 then
-                if (Root.Position - self.ProgressPosition).Magnitude < 1 then self.Route = nil; self:StopMovement(); return end
+                if (Root.Position - self.ProgressPosition).Magnitude < 1 then self.Route = nil; self.PathFailedUntil = os.clock() + 3; self:StopMovement(); return end
                 self.ProgressPosition = Root.Position; self.ProgressAt = os.clock()
             end
             local Direction = Unit(Flat(Point.Position - Root.Position))
@@ -611,7 +627,22 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         return Cost
     end
+    function A:AmmoGoal(Box, Position)
+        local Delta = Unit(Flat(Position - Box.PrimaryPart.Position))
+        if Delta.Magnitude < 0.01 then Delta = Vector3.new(1, 0, 0) end
+        local Turn = self.AmmoApproaches and self.AmmoApproaches[Box] or 0
+        if Turn == 1 then Delta = Vector3.new(-Delta.Z, 0, Delta.X)
+        elseif Turn == 2 then Delta = -Delta
+        elseif Turn == 3 then Delta = Vector3.new(Delta.Z, 0, -Delta.X) end
+        return Box.PrimaryPart.Position + Delta * 3
+    end
     function A:SupplyBox(H, Root)
+        local Committed = self.AmmoDestination
+        if self.TravelPurpose == "ammo" and Committed and Committed.PrimaryPart
+            and (not self.Refill.Eligible or self.Refill:Eligible(Committed))
+            and os.clock() >= ((self.Refill.BlockedUntil or {})[Committed] or 0) then
+            return Committed, (Root.Position - Committed.PrimaryPart.Position).Magnitude
+        end
         local Candidates = {}
         local Nearest, Distance = self.Refill:Nearest(Root, function(Box, D)
             table.insert(Candidates, {Box = Box, Distance = D})
@@ -636,9 +667,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
                     local Box = Candidates[(First + I - 2) % #Candidates + 1].Box
                     local OK, Cost = pcall(function()
                         if not Box.PrimaryPart then return nil end
-                        local Away = Unit(Flat(Position - Box.PrimaryPart.Position))
-                        if Away.Magnitude < 0.01 then Away = Vector3.new(1, 0, 0) end
-                        local Goal = Box.PrimaryPart.Position + Away * 5
+                        local Goal = self:AmmoGoal(Box, Position)
                         local Path = Paths:CreatePath({AgentRadius = 2, AgentHeight = 5, AgentCanJump = true, WaypointSpacing = 4})
                         Path:ComputeAsync(Position, Goal)
                         if Path.Status ~= Enum.PathStatus.Success then return nil end
@@ -675,10 +704,17 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         if not H or not self:Focused() then return false end
         if self.TravelPurpose == "ammo" and self.AmmoDestination and self.PathFailedUntil and os.clock() < self.PathFailedUntil then
+            self.AmmoApproaches = self.AmmoApproaches or {}
+            self.AmmoApproaches[self.AmmoDestination] = ((self.AmmoApproaches[self.AmmoDestination] or 0) + 1) % 4
             self.Refill:Avoid(self.AmmoDestination, 8); self:CancelTravel(); self.PathFailedUntil = nil
+            self.SupplyCache = nil
         end
         local Box, Distance = self:SupplyBox(H, Root)
-        if not Box then Status("AmmoStatus", "No stocked ammo box available"); return false end
+        if not Box then
+            if self.TravelPurpose == "ammo" then self:CancelTravel() end
+            Status("AmmoStatus", self.SupplyPlanning and "Checking ammo routes" or "No reachable stocked box")
+            return false
+        end
         local Near = self.Navigation:Separation(Root.Position, self.Zombies)
         local Radius = Number(Flags.FarmDistance, 24, 5, 100)
         local Emergency = not self:HasAmmunition()
@@ -686,15 +722,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             if self.TravelPurpose == "ammo" then self:CancelTravel() end
             Status("AmmoStatus", "Retreating before resupply"); return false
         end
-        if Distance >= 7 then
+        if Distance >= 7.5 then
             if self.AmmoDestination ~= Box and self.TravelPurpose == "ammo" then self:CancelTravel(); self.PathFailedUntil = nil end
             self.AmmoDestination = Box
-            local Delta = Unit(Flat(Root.Position - Box.PrimaryPart.Position))
-            if Delta.Magnitude < 0.01 then Delta = Vector3.new(1, 0, 0) end
-            self:TravelToPoint(H, Root, Box.PrimaryPart.Position + Delta * 5, "ammo", "AmmoStatus", "Walking to ammo box", Box)
+            self:TravelToPoint(H, Root, self:AmmoGoal(Box, Root.Position), "ammo", "AmmoStatus", "Walking to ammo box", Box)
             return true
         end
         self:CancelTravel(); self:StopMovement(); self:ReleaseAim()
+        if self.Reloading then Status("AmmoStatus", "Waiting for native magazine reload"); return false end
         if Tool.Parent ~= P.Character then self:Equip(H, Tool); Status("AmmoStatus", "Equipping gun for resupply"); return false end
         local Context = self.Refill:Context()
         if not Context then Status("AmmoStatus", "Native refill unavailable"); return false end

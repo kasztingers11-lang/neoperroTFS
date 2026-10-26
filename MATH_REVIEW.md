@@ -28,7 +28,7 @@ Two seconds; 60 native shots/second; 40 HP per target; 50 damage per shot; 80 ms
 | 144 | 120 | 24 | 92 / 0 | 23 / 23 |
 | 240 | 120 | 24 | 92 / 0 | 23 / 23 |
 
-The full suite runs 134 production behavioral checks plus six packaging/source checks. Trajectory checks compare the analytic minimum against dense samples for 60 deterministic scenes. Compilation and local analysis also pass. None of these establish a real-game performance gain.
+The full suite runs 141 production behavioral checks plus six packaging/source checks. Trajectory checks compare the analytic minimum against dense samples for 60 deterministic scenes. Compilation and local analysis also pass. None of these establish a real-game performance gain.
 
 ## Loadout and supply-route additions
 
@@ -36,3 +36,7 @@ The full suite runs 134 production behavioral checks plus six packaging/source c
 - The global fire rate is clamped to 1–120 requested shots/second. Per-weapon presets were removed. Both gun modifications and cadence consume the same global rate.
 - Supply route cost is `sum(segment length / speed * (1 + 20 / max(6, swept gap)))`. A swept gap below six studs rejects the route. Prediction remains bounded/linear and cached; it is not a verified time-dependent safe path. Up to three paths per batch, two-second scheduling, four-second/ten-stud cache limits, rotating failed batches.
 - Upgrade plans reorder native categories using names, with no invented category, price or damage value. Existing native transaction checks remain authoritative.
+
+## Committed travel and refill backoff
+
+Route-ranking expiry no longer cancels a committed eligible ammo trip. Waypoint progression handles overshoot. Stalled travel backs off; alternate box approach points rotate by 90 degrees after path failures. Failed native refills wait 8, 16, 32, then at most 60 seconds. Native timing and actual reserve-increase confirmation remain authoritative. FULLBRIGHT is visual-only and does not alter the clock used by shop/round logic.

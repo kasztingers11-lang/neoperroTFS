@@ -6,6 +6,8 @@ return function(Library: any, Window: any)
     local Http = game:GetService("HttpService")
     local W: any = workspace
     local Flags = Library.Flags
+    local Lighting = game:GetService("Lighting")
+    local BrightValues = {Brightness = 3, Ambient = Color3.fromRGB(190, 190, 190), OutdoorAmbient = Color3.fromRGB(190, 190, 190), GlobalShadows = false, FogEnd = 100000}
     local V: any = {Alive = true, Connections = {}, Callbacks = {}, Tracers = {}, Chams = {},
         Drawings = {}, LastHit = -10, DamageAt = -10, LastRender = -10, LastContactScan = -10}
     local Red = Color3.fromRGB(255, 25, 65)
@@ -36,6 +38,22 @@ return function(Library: any, Window: any)
         return D
     end
     local function Destroy(O) if O then pcall(function() O:Destroy() end) end end
+    function V:SetLighting(Enabled)
+        self.LightingValues = self.LightingValues or {}
+        if not Enabled and not next(self.LightingValues) then return end
+        for Key, Value in pairs(BrightValues) do
+            local Saved = self.LightingValues[Key]
+            if Enabled then
+                if not Saved then Saved = {Original = Lighting[Key], Applied = Value}; self.LightingValues[Key] = Saved
+                elseif Lighting[Key] ~= Saved.Applied then Saved.Original = Lighting[Key] end
+                Saved.Applied = Value
+                if Lighting[Key] ~= Value then Lighting[Key] = Value end
+            elseif Saved then
+                if Lighting[Key] == Saved.Applied then Lighting[Key] = Saved.Original end
+                self.LightingValues[Key] = nil
+            end
+        end
+    end
     function V:BindSignals(Force)
         if not self.Alive or not Force and os.clock() < (self.NextSignalCheck or 0) then return end
         self.NextSignalCheck = os.clock() + 1
@@ -84,7 +102,7 @@ return function(Library: any, Window: any)
     function V:AddCham(Model)
         if not Flags.VisualHitChams or not Model or Model == P.Character or self:Zombie(Model) ~= Model then return end
         local Existing = self.Chams[Model]
-        if Existing then Existing.At = os.clock(); return end
+        if Existing then Existing.At = os.clock(); Existing.Phase = nil; return end
         local Count, OldestModel, Oldest = 0, nil, math.huge
         for M, Record in pairs(self.Chams) do
             Count = Count + 1
@@ -200,6 +218,13 @@ return function(Library: any, Window: any)
             if Visible then
                 local X = Camera:WorldToViewportPoint(T.Start)
                 local Y = Camera:WorldToViewportPoint(T.Finish)
+                if X.Z <= 0.05 and Y.Z > 0.05 then
+                    local T0 = (0.05 - X.Z) / (Y.Z - X.Z)
+                    X = Camera:WorldToViewportPoint(T.Start + (T.Finish - T.Start) * T0)
+                elseif Y.Z <= 0.05 and X.Z > 0.05 then
+                    local T0 = (0.05 - Y.Z) / (X.Z - Y.Z)
+                    Y = Camera:WorldToViewportPoint(T.Finish + (T.Start - T.Finish) * T0)
+                end
                 Visible = X.Z > 0 and Y.Z > 0
                 if Visible then
                     T.Glow.From = Vector2.new(X.X, X.Y); T.Glow.To = Vector2.new(Y.X, Y.Y)
@@ -215,7 +240,16 @@ return function(Library: any, Window: any)
             local Alpha = (Now - Record.At) / Duration("VisualHitTime", 0.45)
             if not Flags.VisualHitChams or not Model.Parent or Alpha >= 1 then
                 Destroy(Record.Object); self.Chams[Model] = nil
-            else Record.Object.FillTransparency = 0.08 + Alpha * 0.92; Record.Object.OutlineTransparency = Alpha end
+            else
+                local Phase = Now - Record.At < 0.06 and 0 or 1
+                if Record.Phase ~= Phase then
+                    Record.Phase = Phase
+                    Record.Object.FillColor = Phase == 0 and White or Red
+                    Record.Object.OutlineColor = Phase == 0 and Red or White
+                end
+                Record.Object.FillTransparency = 0.08 + Alpha * 0.92
+                Record.Object.OutlineTransparency = Alpha * Alpha
+            end
         end
         if Flags.VisualHitIndicator then self:HitDrawings() end
         if self.HitLines then
@@ -252,6 +286,14 @@ return function(Library: any, Window: any)
     end
     function V:Refresh()
         self:BindSignals()
+        self:SetLighting(Flags.VisualFullbright == true)
+        if Flags.VisualFullbright and not self.LightingConnection then
+            self.LightingConnection = Run.Heartbeat:Connect(function()
+                if self.Alive and os.clock() >= (self.NextLighting or 0) then
+                    self.NextLighting = os.clock() + 1; self:SetLighting(true)
+                end
+            end)
+        elseif not Flags.VisualFullbright and self.LightingConnection then self.LightingConnection:Disconnect(); self.LightingConnection = nil end
         local Need = Flags.VisualTracers or Flags.VisualHitChams or Flags.VisualHitIndicator
         if Need and not self.Rendering then
             self.Rendering = true
@@ -273,6 +315,8 @@ return function(Library: any, Window: any)
     function V:Destroy()
         if not self.Alive then return end
         self.Alive = false
+        if self.LightingConnection then self.LightingConnection:Disconnect(); self.LightingConnection = nil end
+        self:SetLighting(false)
         Run:UnbindFromRenderStep(RenderName)
         for _, C in ipairs(self.Connections) do C:Disconnect() end
         for _, C in pairs(self.SignalConnections or {}) do C:Disconnect() end
@@ -281,7 +325,7 @@ return function(Library: any, Window: any)
         for _, D in ipairs(self.Drawings) do pcall(function() D:Remove() end) end
         Destroy(self.Folder); self.Chams = {}; self.Tracers = {}
     end
-    for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator", "VisualIntensity"}) do
+    for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator", "VisualIntensity", "VisualFullbright"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback

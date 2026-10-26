@@ -3,7 +3,7 @@ return function()
     local P: any = game:GetService("Players").LocalPlayer
     local W: any = workspace
     local Load: any = require
-    local A: any = {Alive = true, Pending = nil, NextTry = 0, LastBoxes = -10, Boxes = {}, BlockedUntil = {}}
+    local A: any = {Alive = true, Pending = nil, NextTry = 0, LastBoxes = -10, Boxes = {}, BlockedUntil = {}, Failures = {}}
     function A:Context()
         local Scripts = P:FindFirstChild("PlayerScripts")
         local Gui = Scripts and Scripts:FindFirstChild("GuiManager")
@@ -138,8 +138,11 @@ return function()
         if not R then return "idle" end
         if not R.Done then return "waiting", R end
         self.Pending = nil
-        if R.OK and R.After > R.Before then return "refilled", R end
-        self:Avoid(R.Box)
+        if R.OK and R.After > R.Before then self.Failures[R.Box] = nil; return "refilled", R end
+        local Count = math.min(4, (self.Failures[R.Box] or 0) + 1)
+        self.Failures[R.Box] = Count
+        local Backoff = math.min(60, 8 * 2 ^ (Count - 1))
+        self:Avoid(R.Box, Backoff); self.NextTry = math.max(self.NextTry, os.clock() + Backoff)
         return "failed", R
     end
     function A:Destroy() self.Alive = false end

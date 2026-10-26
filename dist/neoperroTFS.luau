@@ -4368,7 +4368,7 @@ return function()
     local P: any = game:GetService("Players").LocalPlayer
     local W: any = workspace
     local Load: any = require
-    local A: any = {Alive = true, Pending = nil, NextTry = 0, LastBoxes = -10, Boxes = {}, BlockedUntil = {}}
+    local A: any = {Alive = true, Pending = nil, NextTry = 0, LastBoxes = -10, Boxes = {}, BlockedUntil = {}, Failures = {}}
     function A:Context()
         local Scripts = P:FindFirstChild("PlayerScripts")
         local Gui = Scripts and Scripts:FindFirstChild("GuiManager")
@@ -4503,8 +4503,11 @@ return function()
         if not R then return "idle" end
         if not R.Done then return "waiting", R end
         self.Pending = nil
-        if R.OK and R.After > R.Before then return "refilled", R end
-        self:Avoid(R.Box)
+        if R.OK and R.After > R.Before then self.Failures[R.Box] = nil; return "refilled", R end
+        local Count = math.min(4, (self.Failures[R.Box] or 0) + 1)
+        self.Failures[R.Box] = Count
+        local Backoff = math.min(60, 8 * 2 ^ (Count - 1))
+        self:Avoid(R.Box, Backoff); self.NextTry = math.max(self.NextTry, os.clock() + Backoff)
         return "failed", R
     end
     function A:Destroy() self.Alive = false end
@@ -5063,10 +5066,26 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         local Route = self.Route
         if Route then
             local Point = Route[self.Waypoint]
-            if Point and (Root.Position - Point.Position).Magnitude < 3 then self.Waypoint = self.Waypoint + 1; Point = Route[self.Waypoint] end
-            if not Point or os.clock() - self.RouteAt > 8 then self.Route = nil; self:StopMovement(); return end
+            local function Reached()
+                if not Point then return false end
+                if (Root.Position - Point.Position).Magnitude < 2.5 then return true end
+                local Previous = Route[self.Waypoint - 1]
+                if not Previous then return false end
+                local Segment = Flat(Point.Position - Previous.Position)
+                if Segment.Magnitude < 0.01 then return true end
+                local Offset = Flat(Root.Position - Point.Position)
+                local Forward = Segment.Unit
+                return Offset:Dot(Forward) >= 0 and (Offset - Forward * Offset:Dot(Forward)).Magnitude < 2.5
+            end
+            while Reached() do
+                if Point.Action == Enum.PathWaypointAction.Jump then H.Jump = true end
+                self.Waypoint = self.Waypoint + 1; Point = Route[self.Waypoint]
+            end
+            if not Point or os.clock() - self.RouteAt > 30 then
+                self.Route = nil; self.PathFailedUntil = os.clock() + 2; self:StopMovement(); return
+            end
             if os.clock() - self.ProgressAt >= 1.5 then
-                if (Root.Position - self.ProgressPosition).Magnitude < 1 then self.Route = nil; self:StopMovement(); return end
+                if (Root.Position - self.ProgressPosition).Magnitude < 1 then self.Route = nil; self.PathFailedUntil = os.clock() + 3; self:StopMovement(); return end
                 self.ProgressPosition = Root.Position; self.ProgressAt = os.clock()
             end
             local Direction = Unit(Flat(Point.Position - Root.Position))
@@ -5128,7 +5147,22 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         return Cost
     end
+    function A:AmmoGoal(Box, Position)
+        local Delta = Unit(Flat(Position - Box.PrimaryPart.Position))
+        if Delta.Magnitude < 0.01 then Delta = Vector3.new(1, 0, 0) end
+        local Turn = self.AmmoApproaches and self.AmmoApproaches[Box] or 0
+        if Turn == 1 then Delta = Vector3.new(-Delta.Z, 0, Delta.X)
+        elseif Turn == 2 then Delta = -Delta
+        elseif Turn == 3 then Delta = Vector3.new(Delta.Z, 0, -Delta.X) end
+        return Box.PrimaryPart.Position + Delta * 3
+    end
     function A:SupplyBox(H, Root)
+        local Committed = self.AmmoDestination
+        if self.TravelPurpose == "ammo" and Committed and Committed.PrimaryPart
+            and (not self.Refill.Eligible or self.Refill:Eligible(Committed))
+            and os.clock() >= ((self.Refill.BlockedUntil or {})[Committed] or 0) then
+            return Committed, (Root.Position - Committed.PrimaryPart.Position).Magnitude
+        end
         local Candidates = {}
         local Nearest, Distance = self.Refill:Nearest(Root, function(Box, D)
             table.insert(Candidates, {Box = Box, Distance = D})
@@ -5153,9 +5187,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
                     local Box = Candidates[(First + I - 2) % #Candidates + 1].Box
                     local OK, Cost = pcall(function()
                         if not Box.PrimaryPart then return nil end
-                        local Away = Unit(Flat(Position - Box.PrimaryPart.Position))
-                        if Away.Magnitude < 0.01 then Away = Vector3.new(1, 0, 0) end
-                        local Goal = Box.PrimaryPart.Position + Away * 5
+                        local Goal = self:AmmoGoal(Box, Position)
                         local Path = Paths:CreatePath({AgentRadius = 2, AgentHeight = 5, AgentCanJump = true, WaypointSpacing = 4})
                         Path:ComputeAsync(Position, Goal)
                         if Path.Status ~= Enum.PathStatus.Success then return nil end
@@ -5192,10 +5224,17 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         if not H or not self:Focused() then return false end
         if self.TravelPurpose == "ammo" and self.AmmoDestination and self.PathFailedUntil and os.clock() < self.PathFailedUntil then
+            self.AmmoApproaches = self.AmmoApproaches or {}
+            self.AmmoApproaches[self.AmmoDestination] = ((self.AmmoApproaches[self.AmmoDestination] or 0) + 1) % 4
             self.Refill:Avoid(self.AmmoDestination, 8); self:CancelTravel(); self.PathFailedUntil = nil
+            self.SupplyCache = nil
         end
         local Box, Distance = self:SupplyBox(H, Root)
-        if not Box then Status("AmmoStatus", "No stocked ammo box available"); return false end
+        if not Box then
+            if self.TravelPurpose == "ammo" then self:CancelTravel() end
+            Status("AmmoStatus", self.SupplyPlanning and "Checking ammo routes" or "No reachable stocked box")
+            return false
+        end
         local Near = self.Navigation:Separation(Root.Position, self.Zombies)
         local Radius = Number(Flags.FarmDistance, 24, 5, 100)
         local Emergency = not self:HasAmmunition()
@@ -5203,15 +5242,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             if self.TravelPurpose == "ammo" then self:CancelTravel() end
             Status("AmmoStatus", "Retreating before resupply"); return false
         end
-        if Distance >= 7 then
+        if Distance >= 7.5 then
             if self.AmmoDestination ~= Box and self.TravelPurpose == "ammo" then self:CancelTravel(); self.PathFailedUntil = nil end
             self.AmmoDestination = Box
-            local Delta = Unit(Flat(Root.Position - Box.PrimaryPart.Position))
-            if Delta.Magnitude < 0.01 then Delta = Vector3.new(1, 0, 0) end
-            self:TravelToPoint(H, Root, Box.PrimaryPart.Position + Delta * 5, "ammo", "AmmoStatus", "Walking to ammo box", Box)
+            self:TravelToPoint(H, Root, self:AmmoGoal(Box, Root.Position), "ammo", "AmmoStatus", "Walking to ammo box", Box)
             return true
         end
         self:CancelTravel(); self:StopMovement(); self:ReleaseAim()
+        if self.Reloading then Status("AmmoStatus", "Waiting for native magazine reload"); return false end
         if Tool.Parent ~= P.Character then self:Equip(H, Tool); Status("AmmoStatus", "Equipping gun for resupply"); return false end
         local Context = self.Refill:Context()
         if not Context then Status("AmmoStatus", "Native refill unavailable"); return false end
@@ -5667,6 +5705,8 @@ return function(Library: any, Window: any)
     local Http = game:GetService("HttpService")
     local W: any = workspace
     local Flags = Library.Flags
+    local Lighting = game:GetService("Lighting")
+    local BrightValues = {Brightness = 3, Ambient = Color3.fromRGB(190, 190, 190), OutdoorAmbient = Color3.fromRGB(190, 190, 190), GlobalShadows = false, FogEnd = 100000}
     local V: any = {Alive = true, Connections = {}, Callbacks = {}, Tracers = {}, Chams = {},
         Drawings = {}, LastHit = -10, DamageAt = -10, LastRender = -10, LastContactScan = -10}
     local Red = Color3.fromRGB(255, 25, 65)
@@ -5697,6 +5737,22 @@ return function(Library: any, Window: any)
         return D
     end
     local function Destroy(O) if O then pcall(function() O:Destroy() end) end end
+    function V:SetLighting(Enabled)
+        self.LightingValues = self.LightingValues or {}
+        if not Enabled and not next(self.LightingValues) then return end
+        for Key, Value in pairs(BrightValues) do
+            local Saved = self.LightingValues[Key]
+            if Enabled then
+                if not Saved then Saved = {Original = Lighting[Key], Applied = Value}; self.LightingValues[Key] = Saved
+                elseif Lighting[Key] ~= Saved.Applied then Saved.Original = Lighting[Key] end
+                Saved.Applied = Value
+                if Lighting[Key] ~= Value then Lighting[Key] = Value end
+            elseif Saved then
+                if Lighting[Key] == Saved.Applied then Lighting[Key] = Saved.Original end
+                self.LightingValues[Key] = nil
+            end
+        end
+    end
     function V:BindSignals(Force)
         if not self.Alive or not Force and os.clock() < (self.NextSignalCheck or 0) then return end
         self.NextSignalCheck = os.clock() + 1
@@ -5745,7 +5801,7 @@ return function(Library: any, Window: any)
     function V:AddCham(Model)
         if not Flags.VisualHitChams or not Model or Model == P.Character or self:Zombie(Model) ~= Model then return end
         local Existing = self.Chams[Model]
-        if Existing then Existing.At = os.clock(); return end
+        if Existing then Existing.At = os.clock(); Existing.Phase = nil; return end
         local Count, OldestModel, Oldest = 0, nil, math.huge
         for M, Record in pairs(self.Chams) do
             Count = Count + 1
@@ -5861,6 +5917,13 @@ return function(Library: any, Window: any)
             if Visible then
                 local X = Camera:WorldToViewportPoint(T.Start)
                 local Y = Camera:WorldToViewportPoint(T.Finish)
+                if X.Z <= 0.05 and Y.Z > 0.05 then
+                    local T0 = (0.05 - X.Z) / (Y.Z - X.Z)
+                    X = Camera:WorldToViewportPoint(T.Start + (T.Finish - T.Start) * T0)
+                elseif Y.Z <= 0.05 and X.Z > 0.05 then
+                    local T0 = (0.05 - Y.Z) / (X.Z - Y.Z)
+                    Y = Camera:WorldToViewportPoint(T.Finish + (T.Start - T.Finish) * T0)
+                end
                 Visible = X.Z > 0 and Y.Z > 0
                 if Visible then
                     T.Glow.From = Vector2.new(X.X, X.Y); T.Glow.To = Vector2.new(Y.X, Y.Y)
@@ -5876,7 +5939,16 @@ return function(Library: any, Window: any)
             local Alpha = (Now - Record.At) / Duration("VisualHitTime", 0.45)
             if not Flags.VisualHitChams or not Model.Parent or Alpha >= 1 then
                 Destroy(Record.Object); self.Chams[Model] = nil
-            else Record.Object.FillTransparency = 0.08 + Alpha * 0.92; Record.Object.OutlineTransparency = Alpha end
+            else
+                local Phase = Now - Record.At < 0.06 and 0 or 1
+                if Record.Phase ~= Phase then
+                    Record.Phase = Phase
+                    Record.Object.FillColor = Phase == 0 and White or Red
+                    Record.Object.OutlineColor = Phase == 0 and Red or White
+                end
+                Record.Object.FillTransparency = 0.08 + Alpha * 0.92
+                Record.Object.OutlineTransparency = Alpha * Alpha
+            end
         end
         if Flags.VisualHitIndicator then self:HitDrawings() end
         if self.HitLines then
@@ -5913,6 +5985,14 @@ return function(Library: any, Window: any)
     end
     function V:Refresh()
         self:BindSignals()
+        self:SetLighting(Flags.VisualFullbright == true)
+        if Flags.VisualFullbright and not self.LightingConnection then
+            self.LightingConnection = Run.Heartbeat:Connect(function()
+                if self.Alive and os.clock() >= (self.NextLighting or 0) then
+                    self.NextLighting = os.clock() + 1; self:SetLighting(true)
+                end
+            end)
+        elseif not Flags.VisualFullbright and self.LightingConnection then self.LightingConnection:Disconnect(); self.LightingConnection = nil end
         local Need = Flags.VisualTracers or Flags.VisualHitChams or Flags.VisualHitIndicator
         if Need and not self.Rendering then
             self.Rendering = true
@@ -5934,6 +6014,8 @@ return function(Library: any, Window: any)
     function V:Destroy()
         if not self.Alive then return end
         self.Alive = false
+        if self.LightingConnection then self.LightingConnection:Disconnect(); self.LightingConnection = nil end
+        self:SetLighting(false)
         Run:UnbindFromRenderStep(RenderName)
         for _, C in ipairs(self.Connections) do C:Disconnect() end
         for _, C in pairs(self.SignalConnections or {}) do C:Disconnect() end
@@ -5942,7 +6024,7 @@ return function(Library: any, Window: any)
         for _, D in ipairs(self.Drawings) do pcall(function() D:Remove() end) end
         Destroy(self.Folder); self.Chams = {}; self.Tracers = {}
     end
-    for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator", "VisualIntensity"}) do
+    for _, Key in ipairs({"VisualTracers", "VisualHitChams", "VisualHitIndicator", "VisualIntensity", "VisualFullbright"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback
@@ -6022,6 +6104,8 @@ Control:Button({Title = "STOP AUTOMATION", Callback = function() if Library.Auto
 Control:Toggle({Title = "AUTO START ROUND", Flag = "FarmAutoReady"})
 
 local Visuals = Window:Tab("VISUALS")
+local World = Visuals:Section("WORLD", "Right")
+World:Toggle({Title = "FULLBRIGHT", Flag = "VisualFullbright", State = true})
 local Impact = Visuals:Section("SHOT EFFECTS", "Left")
 Impact:Slider({Title = "EFFECT INTENSITY", Flag = "VisualIntensity", Symbol = "", Default = 2, Min = 1, Max = 3, Decimals = 0.1})
 Impact:Toggle({Title = "BULLET TRACERS", Flag = "VisualTracers", State = true})

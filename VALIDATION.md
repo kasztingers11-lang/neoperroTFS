@@ -1,6 +1,14 @@
 # Validation — 2026-10-26
 
-## Current dependency reliability revision
+## Current refill movement and visibility repair
+
+- Found that moving ten studs invalidated supply route scoring and could stop an otherwise committed trip. Active ammo destinations now persist while eligible; scoring does not interrupt the existing route. Dynamic movement geometry checks remain active. Passed waypoints are skipped, lack of progress triggers route backoff, and failed approaches rotate around the box rather than immediately retrying the same corner.
+- Ammo approach goal is three studs away with a 7.5-stud arrival threshold inside the native eight-stud interaction limit. Box interaction waits for native magazine reload; rejected/interrupted native refill attempts use increasing 8/16/32/60-second box/interaction backoff. No native wait is shortened and stock/ammo are not fabricated.
+- Added FULLBRIGHT (default enabled): owned brightness/ambient/shadow/fog overrides, one-second upkeep and conditional restoration. ClockTime and the gameplay day/night calculation remain untouched. Tracers clip a behind-camera muzzle to the near plane; chams use a short white/red impact phase with existing caps.
+- **141 behavioral checks and six packaging/source checks pass**, with local Luau compile/analysis. New regressions cover scoring expiry during committed travel, passed/stalled routes, native reload serialization, refill backoff, alternate box approaches, lighting restoration/clock preservation and near-plane tracers/cham phases.
+- Real is disconnected for this revision. No live route, refill completion, corner escape, visual screenshot or damage test was performed. The user's stop/go and corner report is not claimed fully reproduced in a real match; these fixes address concrete controller paths and simulated failure cases.
+
+## Previous dependency reliability revision
 
 - User confirmed auto refill works. Live diagnosis showed 137/145 reserve rounds and a 50% trigger; no refill threshold or movement-priority change was made.
 - Late/replaced Fire/Hit/Damage events are discovered once per second, with old listeners disconnected and stale hit contact reset. Incorrect event classes are ignored until valid replacements arrive; unload disconnects every owned listener.
