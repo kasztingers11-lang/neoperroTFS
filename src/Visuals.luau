@@ -1,4 +1,4 @@
--- Client-only shot effects. Hit indicators use native server notifications.
+ 
 return function(Library: any, Window: any)
     local P: any = game:GetService("Players").LocalPlayer
     local RS: any = game:GetService("ReplicatedStorage")
@@ -118,8 +118,8 @@ return function(Library: any, Window: any)
                 self:AddTracer(Start, Finish)
                 local Model = self:Zombie(Row[2])
                 local ContactPoint = Finish
-                -- Native visual rays usually omit zombie parts; reconstruct the
-                -- actual shot segment instead of treating a world-impact field as a target.
+                 
+                 
                 if not Model and Scan and Contacts < 4 then
                     Contacts = Contacts + 1
                     Model, ContactPoint = self:Contact(Head and Head.Position or Start, Finish, Tool)

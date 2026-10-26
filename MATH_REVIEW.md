@@ -28,7 +28,7 @@ Two seconds; 60 native shots/second; 40 HP per target; 50 damage per shot; 80 ms
 | 144 | 120 | 24 | 92 / 0 | 23 / 23 |
 | 240 | 120 | 24 | 92 / 0 | 23 / 23 |
 
-The full suite runs 121 production behavioral checks plus four packaging checks. Trajectory checks compare the analytic minimum against dense samples for 60 deterministic scenes. Compilation and local analysis also pass. None of these establish a real-game performance gain.
+The full suite runs 124 production behavioral checks plus six packaging/source checks. Trajectory checks compare the analytic minimum against dense samples for 60 deterministic scenes. Compilation and local analysis also pass. None of these establish a real-game performance gain.
 
 ## Loadout and supply-route additions
 

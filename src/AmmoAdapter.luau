@@ -1,4 +1,4 @@
--- Uses the verified native nearby-box transaction and its real interaction timer.
+ 
 return function()
     local P: any = game:GetService("Players").LocalPlayer
     local W: any = workspace
@@ -113,7 +113,7 @@ return function()
             if not self.Alive or self.CanStart and not self.CanStart() then Record.Done = true; Record.Error = "Cancelled"; return end
             local OK, Error = pcall(Context.Function)
             if not OK and debug.getupvalue(Context.Function, 3) == true then
-                -- Only recover the interaction started by this call, after its thread has returned.
+                 
                 debug.setupvalue(Context.Function, 3, false)
                 Tool.Enabled = true
                 local UI: any = debug.getupvalue(Context.Function, 4)

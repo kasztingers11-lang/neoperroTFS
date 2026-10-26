@@ -60,7 +60,7 @@ Unassigned keys never match mouse `Unknown` key codes. Feature shortcuts run onl
 
 `src/Library.luau` renders the UI; `Features` manages gun changes; `Automation` coordinates gameplay; `Navigation`, `AmmoAdapter` and `ShopAdapter` wrap native movement, refill and shop interactions; `Visuals` owns shot effects. Native closure layouts are guarded against the inspected game v312. Native firing packets are not rewritten.
 
-Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for four packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 121 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
+Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for six packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 124 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
 
 Target acquisition uses squared distances and at most eight visibility rays per throttled search, with fair revisits to blocked candidates. Retreat checks closest approach along movement segments, not just endpoint distance, and nearby threats dominate separation steering. Refill selection ranks reserve fractions using real capacities; its safety gap considers each zombie's speed and distance separately. Charge weapons retain their native firing type under RAPID FIRE. See [MATH_REVIEW.md](MATH_REVIEW.md) for the offline audit and simulation limits.
 
@@ -79,3 +79,9 @@ The library derives from Eazvy/UILibs' Abyss example; original authors retain at
 ## FlowAuth upload
 
 Upload `dist/neoperroTFS.luau` as the full unobfuscated script. It includes all source modules and exact image assets; `loader.luau` is only the GitHub downloader. No obfuscation was applied.
+
+## Comment-free performance revision
+
+Luau source modules, loader and generated bundle contain no comments. The build strips future Luau comments while preserving quoted/long strings and the exact logo bytes. The script remains readable and unobfuscated. Attribution stays in this README.
+
+Idle automation now skips gameplay work after releasing owned state, while pending native transactions continue to poll. Shooting without retreat avoids unused crowd-separation scans. Stable third-person camera settings avoid repeated property writes, the view record is reused between frames, and unchanged rate-editor refreshes are skipped. These are bounded-work reductions, not a measured FPS guarantee.

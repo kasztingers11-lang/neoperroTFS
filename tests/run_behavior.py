@@ -1,8 +1,8 @@
-"""Run production Luau control flow under Lua 5.4 with explicit Roblox mocks.
 
-Requires Python 3.12 and lupa (pip install lupa). --deps can point at an existing
-dependency directory. This strips only ': any' annotations; it does not rewrite logic.
-"""
+
+
+
+
 import argparse
 import re
 import sys
@@ -28,8 +28,8 @@ lua.globals().LoadSource = load_source
 
 
 def load_ui_input(env):
-    # Execute exact production methods with explicit UI dependencies. Loading the
-    # entire Drawing library would require Roblox rendering and Luau operators.
+    
+    
     source = (root / 'src' / 'Library.luau').read_text(encoding='utf-8')
     ranges = [
         ('    function Library.HandleMenuInput(Input)', '    Library:SetMenuKey(Enum.KeyCode.RightShift)'),

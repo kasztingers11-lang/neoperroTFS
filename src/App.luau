@@ -1,4 +1,4 @@
--- Main tab. Features owns gameplay state, cleanup and native shop integration.
+ 
 local LoadTime = tick()
 
 Library.CreateLoader("NEOPERRO", Vector2.new(300, 300))
@@ -58,11 +58,14 @@ Weapons:Toggle({Title = "RETURN TO MAIN", Flag = "FarmReturnMain", State = true}
 local Rates = Loadout:Section("FIRE RATE PRESETS", "Right")
 Rates:Toggle({Title = "USE WEAPON PRESETS", Flag = "GunUsePresets"})
 Library.GunRateProfiles = {}
-local EditingRate, RateSlider
+local EditingRate, RateSlider, LastRateName, LastRateValue
 local function RefreshRateEditor(Name)
     if not RateSlider then return end
+    local Rate = Library.GunRateProfiles[Name] or Library.Flags.GunFireRate or 60
+    if LastRateName == Name and LastRateValue == Rate then return end
+    LastRateName = Name; LastRateValue = Rate
     EditingRate = true
-    RateSlider:Set(Library.GunRateProfiles[Name] or Library.Flags.GunFireRate or 60)
+    RateSlider:Set(Rate)
     RateSlider:SetVisible(Name ~= "Select weapon")
     EditingRate = false
 end
@@ -99,7 +102,7 @@ Impact:Slider({Title = "TRACER LIFETIME", Flag = "VisualTracerTime", Symbol = "s
 Impact:Toggle({Title = "HIT CHAMS", Flag = "VisualHitChams", State = true})
 Impact:Toggle({Title = "HIT INDICATOR", Flag = "VisualHitIndicator", State = true})
 Impact:Slider({Title = "HIT FLASH DURATION", Flag = "VisualHitTime", Symbol = "s", Default = 0.3, Min = 0.1, Max = 0.8, Decimals = 0.01})
--- Keep the existing interface controls and profiles available.
+ 
 local Settings = Window:Tab("SETTINGS")
 local Menu = Settings:Section("INTERFACE", "Left")
 Library.MenuKeyButton = Menu:Button({Title = "SHOW / HIDE UI: RIGHTSHIFT", Callback = function()

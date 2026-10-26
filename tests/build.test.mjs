@@ -1,4 +1,5 @@
 import test, {before} from 'node:test';
+import {stripLuauComments} from '../luau-source.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -42,4 +43,24 @@ test('rebuilding produces identical standalone bytes',()=>{
   const before=read('dist/neoperroTFS.luau');
   build();
   assert.deepEqual(read('dist/neoperroTFS.luau'),before);
+});
+
+test('source and executable contain no Luau comments',()=>{
+  for(const name of ['loader.luau',...fs.readdirSync(path.join(root,'src')).filter(x=>x.endsWith('.luau')).map(x=>'src/'+x),'dist/neoperroTFS.luau']){
+    const source=read(name).toString('utf8');
+    assert.equal(stripLuauComments(source),source,name);
+  }
+});
+
+test('comment removal preserves strings, delimiters and token separation',()=>{
+  const source = `local a="https://host/--path" -- remove
+local b=[=[--literal\ncontents]=] --[==[remove\nblock]==]local c='--quoted'
+return a--tail`;
+  const result=stripLuauComments(source);
+  assert.ok(result.includes('"https://host/--path"'));
+  assert.ok(result.includes('[=[--literal\ncontents]=]'));
+  assert.ok(result.includes("local c='--quoted'"));
+  assert.ok(!result.includes('remove'));
+  assert.equal(stripLuauComments(result),result);
+  assert.equal(stripLuauComments('return 1--[[x]]+2'), 'return 1 +2');
 });

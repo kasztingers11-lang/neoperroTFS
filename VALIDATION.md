@@ -1,6 +1,13 @@
 # Validation — 2026-10-26
 
-## Current loadout, supply-route and upgrade-plan revision
+## Current performance and comment removal
+
+- **124 behavioral checks and six packaging/source checks pass**, with local Luau compilation and analysis. No live FPS benchmark or game injection was performed.
+- Idle controller steps skip movement/threat/task work once owned state is released, but pending refill/shop/Ready transactions still poll. Shooting-only mode avoids unused separation scans. Third-person camera writes are conditional and per-frame view records are reused. Rate-editor refreshes skip unchanged values.
+- Removed comments from all Luau source, loader, bundle and test source. Build-time stripping handles quoted strings, long strings and long/line comments. Regression checks verify string/token preservation, comment-free output, deterministic builds and unchanged embedded assets. Build helper and source tests remain available; no obfuscation was applied.
+- Upload the complete dist/neoperroTFS.luau bundle to FlowAuth, not loader.luau. The matching local output is outputs/neoperroTFS.luau.
+
+## Previous loadout, supply-route and upgrade-plan revision
 
 - **121 production behavior checks and four packaging checks pass**, with local Luau compilation and analysis. No live game/MCP was used for this revision; live damage, actual FPS, native purchase acceptance and route safety remain unverified.
 - Added LOADOUT controls for main/backup weapon preferences, opt-in per-weapon rapid-fire rates and return-to-main. Readiness outranks preference, unsupported charges remain excluded, and refill ownership prevents an immediate switch away from a backup waiting at the box. Presets and smart cadence use the same requested rate; deleting an override restores global behavior. Profile maps validate numeric values and defer choices for late ownership.

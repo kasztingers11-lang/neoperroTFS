@@ -1,4 +1,4 @@
--- Gun mods only. Native ammo, reload, range, penetration and network data are untouched.
+ 
 return function(Library: any, Window: any)
     local P: any = game:GetService("Players").LocalPlayer
     local Run = game:GetService("RunService")
@@ -39,7 +39,7 @@ return function(Library: any, Window: any)
                 Record = {Original = Value.Value, Applied = Desired}
                 F.Values[Value] = Record
             elseif Value.Value ~= Record.Applied then
-                -- Preserve new native upgrades instead of restoring an obsolete baseline.
+                 
                 Record.Original = Value.Value
             end
             local Before = Value.Value
@@ -71,7 +71,7 @@ return function(Library: any, Window: any)
                 end
             end)
         end
-        -- Values must be restored before rebuilding native cached spread.
+         
         if B.UpdateSpread then pcall(B.UpdateSpread) end
     end
     function F:ReleaseWeapon(Tool)
@@ -93,7 +93,7 @@ return function(Library: any, Window: any)
         local OK, Environment = pcall(getsenv, Script)
         if not OK then return nil end
         local Fire = filtergc("function", {Name = "FireWeapon", Environment = Environment}, true)
-        if not Fire then return nil end -- Unequipped new guns may not have initialized yet.
+        if not Fire then return nil end  
         B = {Tool = Tool, Script = Script, Environment = Environment, Fire = Fire}
         for Index = 1, math.min(debug.getinfo(Fire).nups, 128) do
             local V = debug.getupvalue(Fire, Index)
@@ -141,7 +141,7 @@ return function(Library: any, Window: any)
         for _, Prefix in ipairs({"", "Zoom", "Alt", "AltZoom"}) do
             local MinSpread = V:FindFirstChild(Prefix .. "Spread")
             local MaxSpread = V:FindFirstChild(Prefix .. "SpreadMax")
-            -- Integer spread fields need a representable nonzero interval too.
+             
             local Integer = MaxSpread and (MaxSpread:IsA("IntValue") or MaxSpread.ClassName == "IntConstrainedValue")
             if Assign(MinSpread, Integer and 0 or 0.000001, SpreadEnabled) then SpreadChanged = true end
             if Assign(MaxSpread, Integer and 1 or 0.000002, SpreadEnabled) then SpreadChanged = true end
@@ -167,7 +167,7 @@ return function(Library: any, Window: any)
                 end
             end
         end
-        -- A missing Backpack must not skip guns in the character.
+         
         Visit(P:FindFirstChildOfClass("Backpack"))
         Visit(P.Character)
         for Tool in pairs(self.Weapons) do if not Owned[Tool] then self:ReleaseWeapon(Tool) end end

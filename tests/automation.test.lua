@@ -1,4 +1,4 @@
--- State-machine tests of the actual factories; this is not a Roblox/server simulator.
+ 
 local AutoFactory = LoadSource("Automation")
 local ShopFactory = LoadSource("ShopAdapter")
 local GunFactory = LoadSource("Features")
@@ -647,7 +647,7 @@ test("ammo selection respects creator-only deployables and unavailable stock",fu
     c.Box.Ammo.Value=0; eq(c.Ammo:Nearest(c.Root),nil)
 end)
 
--- Native shop adapter fixture: same row/cash/confirmation contract, no server claims.
+ 
 local function nativeShop()
     local c=setup(true); c.Weapon("Pistol")
     local scripts=instance("PlayerScripts","Folder",c.P)
@@ -1165,7 +1165,7 @@ test("confirmed upgrades clear previously learned damage assumptions",function()
     c.A:Upgrade(c.H,c.Root);eq(c.A.BurstEstimate,nil);eq(c.A.BurstPlan,nil)
 end)
 
--- Input routing regression: production Library methods, mocked hitboxes only.
+ 
 local function bindingFixture()
     local e=setmetatable({}, {__index=_G})
     local function item(name,kind) return {Name=name,EnumType=kind} end
@@ -1375,6 +1375,25 @@ test("return to main does not steal a backup waiting for native refill",function
     c.Lib.Flags.FarmAutoShoot=true;c.Lib.Flags.FarmAutoRefill=true;c.Lib.Flags.FarmReturnMain=true;c.Lib.Flags.FarmMainWeapon="Main"
     c.Refill.Needs=function(_,tool)return tool==backup end;c.A:ReturnMain(c.H);eq(#Tasks,0)
     c.Refill.Needs=function()return false end;c.A:ReturnMain(c.H);eq(#Tasks,1);flush();eq(main.Parent,c.P.Character)
+end)
+
+test("idle controller skips zombie separation and movement work until enabled",function()
+    local c=setup();local calls=0
+    c.A.Navigation.Separation=function()calls=calls+1;return math.huge,Vector3.zero end
+    c.A:Step();c.A:Step();eq(calls,0);eq(c.A.Idle,true)
+    c.Lib.Flags.FarmKeepDistance=true;c.A:Step();assert(calls>0);eq(c.A.Idle,false)
+end)
+
+test("shoot only mode skips unused retreat separation scans",function()
+    local c=setup();c.Weapon("Pistol",c.P.Character);c.Zombie("A",15,0);c.Lib.Flags.FarmAutoShoot=true
+    c.A.Navigation.Separation=function()error("unused separation scan")end
+    c.A:Step();c.A:PreRender();eq(Presses,1)
+end)
+
+test("third person reuses the view record across rendered frames",function()
+    local c=setup();local z=c.Zombie("A",15,0);c.Lib.Items.CameraThirdPerson:Set(true)
+    c.A:Aim(c.World.CurrentCamera,c.Root,z);local record=c.A.SavedView;c.A:RestoreView()
+    c.A:Aim(c.World.CurrentCamera,c.Root,z);eq(c.A.SavedView,record);c.A:RestoreView();eq(c.A.SavedView,nil)
 end)
 
 print(string.format("%d passed, %d failed",passed,failed))

@@ -1,4 +1,4 @@
--- Local steering plus navmesh routes: geometry is always respected.
+ 
 return function()
     local W: any = workspace
     local P: any = game:GetService("Players").LocalPlayer
@@ -104,7 +104,7 @@ return function()
         self.DirectClear = DirectScore ~= nil and DirectSafety >= Nearest + 1 and not self.StuckDirection
         local OldScore = Score(self.LastDirection)
         if self.DirectClear then
-            -- Keep a safe heading across small target motion, rather than zigzagging.
+             
             if OldScore and self.LastDirection:Dot(Away) > 0.8 and OldScore >= DirectScore - 3 then return self.LastDirection end
             return Away
         end
@@ -124,7 +124,7 @@ return function()
         local Token = {}; self.Token = Token
         local Start = Root.Position
         local Candidates = {}
-        -- One goal per distance band prevents three unreachable long goals starving nearby exits.
+         
         for _, Distance in ipairs({math.clamp(Radius + 8, 20, 45), math.clamp(Radius * 0.6, 14, 25), math.clamp(Radius * 0.3, 8, 12)}) do
             local BestGoal
             for I = 0, 15 do
@@ -230,7 +230,7 @@ return function()
         end
         if not Direction or Direction.Magnitude < 0.01 then
             Direction = self:LocalDirection(Root, Zombies, Radius, Params, Ground.Position.Y, Away)
-            -- Navmesh is a detour fallback, not a constantly replaced movement target.
+             
             if not self.DirectClear then self:Plan(Root, Zombies, Radius, Away, Params, Ground.Position.Y) end
         end
         self.LastDirection = Direction

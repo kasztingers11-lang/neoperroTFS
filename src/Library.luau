@@ -1,4 +1,4 @@
--- Abyss Drawing UI adapted from Eazvy/UILibs/Librarys/Abyss/Example.
+ 
 local Secure = setmetatable({}, {
     __index = function(Idx, Val)
         return game:GetService(Val)
@@ -109,7 +109,7 @@ do
         Library.NextFlag += 1
         return "Control_" .. Library.NextFlag
     end
-    -- One engine connection per signal, with ordered handlers.
+     
     Library.SignalHandlers = {}
     Utility.AddConnection = function(Signal, Callback)
         local SignalName = Signal
@@ -139,7 +139,7 @@ do
         table.insert(Handlers, Handler)
         return Handler
     end
-    -- One short-lived render connection, shared by all active transitions.
+     
     Utility.Tween = function(Object, Property, Target, Duration, Completed, Updated)
         if Library.Destroyed then return end
         local Properties = Library.Motion[Object]
@@ -520,7 +520,7 @@ do
                                 or (Window.BindPanelBounds and Utility.OnMouse(Window.BindPanelBounds)))
                             Library.MenuCameraDragging = not OverUI and not Library.CapturingMenuKey and UserInput:GetFocusedTextBox() == nil
                         end
-                        -- Native right-drag needs its mouse lock; release the cursor again afterward.
+                         
                         if not Library.MenuCameraDragging then UserInput.MouseBehavior = Enum.MouseBehavior.Default end
                         UserInput.MouseIconEnabled = true
                     end
@@ -541,7 +541,7 @@ do
         Library.WindowVisible = State
         Library:SetMenuMouseCapture(State)
         if Library.Automation then
-            -- Hand physical input back without discarding targets, routes or transactions.
+             
             Library.Automation:ReleaseMouse(); Library.Automation:Sprint(false)
             Library.Automation:RestoreView()
         end
@@ -607,8 +607,8 @@ do
             return true
         end
         local TextBox = UserInput:GetFocusedTextBox()
-        -- Route bind UI before ordinary controls and gameplay shortcuts. One event
-        -- has one owner, even when a popup overlaps another control.
+         
+         
         for _, Bind in ipairs(Library.Bindings) do
             if Bind.Binding and Bind.HandleMenuInput then
                 Bind:HandleMenuInput(Input)
@@ -621,8 +621,8 @@ do
         end
         local Pointer = Input.UserInputType == Enum.UserInputType.MouseButton1
             or Input.UserInputType == Enum.UserInputType.MouseButton2 or Input.UserInputType == Enum.UserInputType.MouseButton3
-        -- CoreGui can focus a textbox in the Escape menu. It owns typing, but
-        -- must not swallow pointer edits to our visible controls.
+         
+         
         if TextBox and not Pointer then return true end
         if Library.WindowVisible then
             for _, Bind in ipairs(Library.Bindings) do
@@ -877,14 +877,14 @@ do
         })
         local TabLine = Utility.AddDrawing("Square", {
             Thickness = 0,
-            Color = Library.Theme.Accent[1], --Library.Theme.Outline,
+            Color = Library.Theme.Accent[1],  
             Visible = true,
             Filled = true,
             ZIndex = 2
         })
         local DisableLine = Utility.AddDrawing("Square", {
             Thickness = 0,
-            Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+            Color = Library.Theme.LightContrast,  
             Visible = true,
             Filled = true,
             ZIndex = 3
@@ -991,7 +991,7 @@ do
                 Size = Vector2.new(TabInline.Size.X - 2, TabInline.Size.Y - 2),
                 Position = Vector2.new(TabInline.Position.X + 1, TabInline.Position.Y + 1),
                 Thickness = 0,
-                Color = Library.Theme.DarkContrast, --Library.Theme.Outline,
+                Color = Library.Theme.DarkContrast,  
                 Visible = true,
                 Filled = true
             })
@@ -1065,7 +1065,7 @@ do
                     Size = Vector2.new(SectionInline.Size.X - 2, SectionInline.Size.Y - 2),
                     Position = Vector2.new(SectionInline.Position.X + 1, SectionInline.Position.Y + 1),
                     Thickness = 0,
-                    Color = Library.Theme.DarkContrast, --Library.Theme.Outline,
+                    Color = Library.Theme.DarkContrast,  
                     Visible = true,
                     Filled = true
                 })
@@ -1141,7 +1141,7 @@ do
                         Size = Vector2.new(ToggleInline.Size.X - 2, ToggleInline.Size.Y - 2),
                         Position = Vector2.new(ToggleInline.Position.X + 1, ToggleInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true
                     })
@@ -1149,7 +1149,7 @@ do
                         Size = Vector2.new(SectionOutline.Size.X - 60, ToggleInline.Size.Y - 2),
                         Position = Vector2.new(ToggleInline.Position.X + 1, ToggleInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.Hitbox, --Library.Theme.Outline,
+                        Color = Library.Theme.Hitbox,  
                         Transparency = 0,
                         Visible = true,
                         Filled = true
@@ -1268,7 +1268,7 @@ do
                             Size = Vector2.new(ColorpickerInline.Size.X - 2, ColorpickerInline.Size.Y - 2),
                             Position = Vector2.new(ColorpickerInline.Position.X + 1, ColorpickerInline.Position.Y + 1),
                             Thickness = 0,
-                            Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                            Color = Library.Theme.LightContrast,  
                             Visible = true,
                             Filled = true
                         })
@@ -1276,7 +1276,7 @@ do
                             Size = Vector2.new(ColorpickerInline.Size.X - 2, ColorpickerInline.Size.Y - 2),
                             Position = Vector2.new(ColorpickerInline.Position.X + 1, ColorpickerInline.Position.Y + 1),
                             Thickness = 0,
-                            Color = Colorpicker.Color, --Library.Theme.Outline,
+                            Color = Colorpicker.Color,  
                             Visible = true,
                             Filled = true
                         })
@@ -1300,7 +1300,7 @@ do
                             Size = Vector2.new(InternalInline.Size.X - 2, InternalInline.Size.Y - 2),
                             Position = Vector2.new(InternalInline.Position.X + 1, InternalInline.Position.Y + 1),
                             Thickness = 0,
-                            Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                            Color = Library.Theme.LightContrast,  
                             Visible = true,
                             Filled = true,
                             ZIndex = 3
@@ -1343,7 +1343,7 @@ do
                             Size = Vector2.new(192 - 4, 192 - 4),
                             Position = Vector2.new(InternalBaseInline.Position.X + 2, InternalBaseInline.Position.Y + 2),
                             Thickness = 0,
-                            Color = Options.Color, --Library.Theme.Outline,
+                            Color = Options.Color,  
                             Visible = true,
                             Filled = true,
                             ZIndex = 3
@@ -1411,7 +1411,7 @@ do
                             Size = Vector2.new(InternalInlineHex.Size.X - 2, InternalInlineHex.Size.Y - 2),
                             Position = Vector2.new(InternalInlineHex.Position.X + 1, InternalInlineHex.Position.Y + 1),
                             Thickness = 0,
-                            Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                            Color = Library.Theme.LightContrast,  
                             Visible = true,
                             Filled = true,
                             ZIndex = 3
@@ -1440,7 +1440,7 @@ do
                             Size = Vector2.new(InternalInlineRGB.Size.X - 2, InternalInlineRGB.Size.Y - 2),
                             Position = Vector2.new(InternalInlineRGB.Position.X + 1, InternalInlineRGB.Position.Y + 1),
                             Thickness = 0,
-                            Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                            Color = Library.Theme.LightContrast,  
                             Visible = true,
                             Filled = true,
                             ZIndex = 3
@@ -1690,7 +1690,7 @@ do
                             Size = Vector2.new(KeybindInline.Size.X - 2, KeybindInline.Size.Y - 2),
                             Position = Vector2.new(KeybindInline.Position.X + 1, KeybindInline.Position.Y + 1),
                             Thickness = 0,
-                            Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                            Color = Library.Theme.LightContrast,  
                             Visible = true,
                             Filled = true
                         })
@@ -1725,7 +1725,7 @@ do
                             Size = Vector2.new(KeybindHoldInline.Size.X - 2, KeybindHoldInline.Size.Y - 2),
                             Position = Vector2.new(KeybindHoldInline.Position.X + 1, KeybindHoldInline.Position.Y + 1),
                             Thickness = 0,
-                            Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                            Color = Library.Theme.LightContrast,  
                             Visible = true,
                             Filled = true,
                             ZIndex = 3
@@ -1761,7 +1761,7 @@ do
                             Size = Vector2.new(KeybindToggleInline.Size.X - 2, KeybindToggleInline.Size.Y - 2),
                             Position = Vector2.new(KeybindToggleInline.Position.X + 1, KeybindToggleInline.Position.Y + 1),
                             Thickness = 0,
-                            Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                            Color = Library.Theme.LightContrast,  
                             Visible = true,
                             Filled = true,
                             ZIndex = 3
@@ -1798,7 +1798,7 @@ do
                             Size = Vector2.new(KeybindAlwaysInline.Size.X - 2, KeybindAlwaysInline.Size.Y - 2),
                             Position = Vector2.new(KeybindAlwaysInline.Position.X + 1, KeybindAlwaysInline.Position.Y + 1),
                             Thickness = 0,
-                            Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                            Color = Library.Theme.LightContrast,  
                             Visible = true,
                             Filled = true,
                             ZIndex = 3
@@ -1901,8 +1901,8 @@ do
                             local Right = InputType == Enum.UserInputType.MouseButton2
                             if not Left and not Right then return false end
                             if self.Dropped then
-                                -- Only an explicit LEFT click selects a row. Right click
-                                -- closes the popup without changing its key/mode/state.
+                                 
+                                 
                                 if Left and Utility.OnMouse(KeybindNoneInline) then
                                     self:Set(Enum.KeyCode.Unknown, "Toggle")
                                 elseif Left and Utility.OnMouse(KeybindHoldInline) then
@@ -2038,7 +2038,7 @@ do
                         Size = Vector2.new(SliderInline.Size.X - 2, SliderInline.Size.Y - 2),
                         Position = Vector2.new(SliderInline.Position.X + 1, SliderInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true
                     })
@@ -2047,7 +2047,7 @@ do
                         Position = Vector2.new(SliderOutline.Position.X, SliderOutline.Position.Y),
                         Thickness = 0,
                         Transparency = 0.75,
-                        Color = Library.Theme.Accent[1], --Library.Theme.Outline,
+                        Color = Library.Theme.Accent[1],  
                         Visible = true,
                         Filled = true
                     })
@@ -2216,7 +2216,7 @@ do
                         Size = Vector2.new(ButtonInline.Size.X - 2, ButtonInline.Size.Y - 2),
                         Position = Vector2.new(ButtonInline.Position.X + 1, ButtonInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true
                     })
@@ -2333,7 +2333,7 @@ do
                         Size = Vector2.new(ColorpickerInline.Size.X - 2, ColorpickerInline.Size.Y - 2),
                         Position = Vector2.new(ColorpickerInline.Position.X + 1, ColorpickerInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true
                     })
@@ -2341,7 +2341,7 @@ do
                         Size = Vector2.new(ColorpickerInline.Size.X - 2, ColorpickerInline.Size.Y - 2),
                         Position = Vector2.new(ColorpickerInline.Position.X + 1, ColorpickerInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Colorpicker.Color, --Library.Theme.Outline,
+                        Color = Colorpicker.Color,  
                         Visible = true,
                         Filled = true
                     })
@@ -2365,7 +2365,7 @@ do
                         Size = Vector2.new(InternalInline.Size.X - 2, InternalInline.Size.Y - 2),
                         Position = Vector2.new(InternalInline.Position.X + 1, InternalInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true,
                         ZIndex = 3
@@ -2408,7 +2408,7 @@ do
                         Size = Vector2.new(192 - 4, 192 - 4),
                         Position = Vector2.new(InternalBaseInline.Position.X + 2, InternalBaseInline.Position.Y + 2),
                         Thickness = 0,
-                        Color = Options.Color, --Library.Theme.Outline,
+                        Color = Options.Color,  
                         Visible = true,
                         Filled = true,
                         ZIndex = 3
@@ -2476,7 +2476,7 @@ do
                         Size = Vector2.new(InternalInlineHex.Size.X - 2, InternalInlineHex.Size.Y - 2),
                         Position = Vector2.new(InternalInlineHex.Position.X + 1, InternalInlineHex.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true,
                         ZIndex = 3
@@ -2505,7 +2505,7 @@ do
                         Size = Vector2.new(InternalInlineRGB.Size.X - 2, InternalInlineRGB.Size.Y - 2),
                         Position = Vector2.new(InternalInlineRGB.Position.X + 1, InternalInlineRGB.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true,
                         ZIndex = 3
@@ -2751,7 +2751,7 @@ do
                         Size = Vector2.new(DropdownInline.Size.X - 2, DropdownInline.Size.Y - 2),
                         Position = Vector2.new(DropdownInline.Position.X + 1, DropdownInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true
                     })
@@ -2798,7 +2798,7 @@ do
                     local DropdownDetect = Utility.AddDrawing("Square", {
                         Thickness = 0,
                         Transparency = 0,
-                        Color = Library.Theme.Hitbox, --Library.Theme.Outline,
+                        Color = Library.Theme.Hitbox,  
                         Visible = true,
                         Filled = true
                     })
@@ -2814,8 +2814,8 @@ do
                         Library.Flags[Options.Flag] = Dropdown.Selected
                         Dropdown.Callback(Dropdown.Selected)
                     end
-                    -- Dependent fields keep their reserved layout space and cannot receive
-                    -- pointer input while hidden, including after changing tabs.
+                     
+                     
                     function Dropdown:SetVisible(State)
                         Dropdown.ControlVisible = State
                         if not State then Dropdown:ShowList(false) end
@@ -2870,7 +2870,7 @@ do
                             Size = Vector2.new(SelectionInline.Size.X - 2, SelectionInline.Size.Y - 2),
                             Position = Vector2.new(SelectionInline.Position.X + 1, SelectionInline.Position.Y + 1),
                             Thickness = 0,
-                            Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                            Color = Library.Theme.LightContrast,  
                             Visible = true,
                             Filled = true,
                             ZIndex = 3
@@ -3071,7 +3071,7 @@ do
                         Size = Vector2.new(KeybindInline.Size.X - 2, KeybindInline.Size.Y - 2),
                         Position = Vector2.new(KeybindInline.Position.X + 1, KeybindInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true
                     })
@@ -3105,7 +3105,7 @@ do
                         Size = Vector2.new(KeybindHoldInline.Size.X - 2, KeybindHoldInline.Size.Y - 2),
                         Position = Vector2.new(KeybindHoldInline.Position.X + 1, KeybindHoldInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true
                     })
@@ -3139,7 +3139,7 @@ do
                         Size = Vector2.new(KeybindToggleInline.Size.X - 2, KeybindToggleInline.Size.Y - 2),
                         Position = Vector2.new(KeybindToggleInline.Position.X + 1, KeybindToggleInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true
                     })
@@ -3173,7 +3173,7 @@ do
                         Size = Vector2.new(KeybindAlwaysInline.Size.X - 2, KeybindAlwaysInline.Size.Y - 2),
                         Position = Vector2.new(KeybindAlwaysInline.Position.X + 1, KeybindAlwaysInline.Position.Y + 1),
                         Thickness = 0,
-                        Color = Library.Theme.LightContrast, --Library.Theme.Outline,
+                        Color = Library.Theme.LightContrast,  
                         Visible = true,
                         Filled = true
                     })
@@ -3541,7 +3541,7 @@ do
         return Window
     end
 end
--- Menu key is dispatched before ordinary widget input.
+ 
 Utility.AddConnection("InputBegan", function() end)
 
 return Library

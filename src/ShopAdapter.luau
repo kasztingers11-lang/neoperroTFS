@@ -1,4 +1,4 @@
--- Native cash-only upgrade UI adapter. It never writes money, levels or gun values.
+ 
 return function()
     local P: any = game:GetService("Players").LocalPlayer
     local RS: any = game:GetService("ReplicatedStorage")
@@ -48,7 +48,7 @@ return function()
         if type(Shop) ~= "table" or type(Shop.Next) ~= "function" then return nil end
         local Update = getfenv(Shop.Next).UpdateUpgrade
         if type(Update) ~= "function" or debug.getinfo(Update).nups < 18 then return nil end
-        -- Verified v312 layout, checked by object identity/shape before use.
+         
         local Frame = debug.getupvalue(Update, 4)
         local Info = debug.getupvalue(Update, 8)
         if typeof(Frame) ~= "Instance" or Frame.Name ~= "ShopFrame"
@@ -92,7 +92,7 @@ return function()
                     if Row and Row.Visible and Buy and Buy.Visible and Price and Price >= 0 then
                         if Price + CashReserve > Money.Value then
                             Reason = "Waiting for cash ($" .. tostring(Price) .. ")"
-                            -- All-upgrades mode may still buy a cheaper unlocked category.
+                             
                         else
                             local Handler
                             for _, Connection in ipairs(getconnections(Row.MouseButton1Click)) do
@@ -101,7 +101,7 @@ return function()
                             if not Handler then Reason = "Native buy handler unavailable"; return end
                             Pending = {Weapon = Weapon, Level = Level, Before = Level.Value,
                                 Price = Price, Started = os.clock(), Confirmed = false}
-                            -- Register before invoking: a confirmation can arrive immediately.
+                             
                             self.Pending = Pending
                             Handler()
                             return
@@ -110,12 +110,12 @@ return function()
                 end
             end
         end)
-        -- Always restore the native selection, even when a buy callback throws.
+         
         pcall(debug.setupvalue, Update, 5, PreviousWeapon)
         pcall(function() Context.Frame.Upgrade.Value = PreviousMode; Update() end)
         if not OK then
             if self.Pending then
-                -- A callback may have sent its request before throwing: never retry blindly.
+                 
                 self.Pending.Error = tostring(Error)
                 return self.Pending, "Waiting for confirmation"
             end
@@ -173,8 +173,8 @@ return function()
         local Record = {Started = os.clock(), Box = Box, BeforeStock = Box.Ammo.Value,
             BeforeCash = Money.Value, Price = Price, Amount = Amount}
         self.RestockPending = Record
-        -- Native restock changes stock/cash optimistically and has no dedicated acknowledgement.
-        -- One attempt per round prevents a rejected local update causing repeated spending.
+         
+         
         self.RestockAttemptedWave = Wave.Value
         local OK, Error = pcall(Context.Purchase.RepairStructure, Context.Purchase, "AmmoBox")
         Record.Error = not OK and tostring(Error) or nil
@@ -241,7 +241,7 @@ return function()
         end
         if os.clock() - Pending.Started >= 6 then
             self.Pending = nil
-            -- Native shop owns its optimistic values. Do not invent a refund or a second buy.
+             
             return "timeout", Pending
         end
         return "waiting", Pending
