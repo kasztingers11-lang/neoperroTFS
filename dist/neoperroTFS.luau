@@ -1963,7 +1963,7 @@ do
                             return false
                         end
                         function Keybind:HandleShortcut(Input)
-                            if Keybind.Key == Enum.KeyCode.Unknown or Library.WindowVisible or Keybind.Binding or Keybind.CapturedInput == Input or Library.LastCapturedBindInput == Input or UserInput:GetFocusedTextBox() or not isrbxactive() then return end
+                            if Keybind.Key == Enum.KeyCode.Unknown or Library.WindowVisible and Input.UserInputType ~= Enum.UserInputType.Keyboard or Keybind.Binding or Keybind.CapturedInput == Input or Library.LastCapturedBindInput == Input or UserInput:GetFocusedTextBox() or not isrbxactive() then return end
                             if (Keybind.EnumType == "KeyCode" and Input.KeyCode == Keybind.Key) or (Keybind.EnumType == "UserInputType" and Input.UserInputType == Keybind.Key) then
                                 if Keybind.StateType ~= "Always" then
                                     if Keybind.StateType == "Toggle" then
@@ -3331,7 +3331,7 @@ do
                     end)
                     Utility.AddConnection("InputBegan", function(Input, Useless)
                         
-                        if Keybind.Key == Enum.KeyCode.Unknown or Library.WindowVisible or Keybind.Binding or Keybind.CapturedInput == Input or UserInput:GetFocusedTextBox() then return end
+                        if Keybind.Key == Enum.KeyCode.Unknown or Library.WindowVisible and Input.UserInputType ~= Enum.UserInputType.Keyboard or Keybind.Binding or Keybind.CapturedInput == Input or UserInput:GetFocusedTextBox() then return end
                         
                         if (Keybind.EnumType == "KeyCode" and Input.KeyCode == Keybind.Key) or (Keybind.EnumType == "UserInputType" and Input.UserInputType == Keybind.Key) then
                             if Keybind.StateType == "Toggle" then

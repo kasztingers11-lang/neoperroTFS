@@ -1179,7 +1179,7 @@ local function bindingFixture()
     e.Library={WindowVisible=true,MenuKey=K.RightShift,Bindings={},Flags={},Keys={Shortened={}},Theme={Text="white",TextInactive="gray",Accent={"red"}}}
     e.Library.ChangeVisible=function(self,v) self.WindowVisible=v end
     e.Toggle={Toggled=true}
-    e.Keybind={Key=K.Unknown,EnumType="KeyCode",StateType="Toggle",State=true,Shorten="None",Dropped=false,Binding=false}
+    e.Keybind={Key=K.Unknown,EnumType="KeyCode",StateType="Toggle",State=true,Shorten="None",Dropped=false,Binding=false,ShowRender="[F7] Test"}
     e.Callbacks=0
     e.Keybind.Callback=function(v) e.Callbacks=e.Callbacks+1;e.Toggle.Toggled=v end
     e.Keybind.RemoveFromKeyBindGui=function() end
@@ -1437,6 +1437,21 @@ test("strong hit effects scale existing pooled handles without increasing caps",
     c.Lib.Flags.VisualIntensity=1;c.V:ApplyStyle();eq(c.V.Tracers[1].Glow.Thickness,9)
     for i=1,110 do c.V:AddTracer(Vector3.zero,Vector3.new(10,0,0))end
     eq(#c.V.Tracers,96);c.V:Destroy()
+end)
+
+test("keyboard feature binds work with menu open without changing capture routing",function()
+    local e=bindingFixture();e.Keybind:Set(e.Enum.KeyCode.F7,"Toggle")
+    local before=e.Callbacks;local state=e.Toggle.Toggled
+    e:Dispatch(e:Input("Keyboard","F7"));eq(e.Callbacks,before+1);eq(e.Toggle.Toggled,not state)
+    e.TextBox={};e:Dispatch(e:Input("Keyboard","F7"));eq(e.Callbacks,before+1)
+    e.TextBox=nil;e.Keybind.Binding=true;e:Dispatch(e:Input("Keyboard","F7"));eq(e.Toggle.Toggled,not state)
+end)
+
+test("keyboard Hold activates with menu visible while mouse binds remain blocked",function()
+    local e=bindingFixture();e.Keybind:Set(e.Enum.KeyCode.F7,"Hold")
+    e:Dispatch(e:Input("Keyboard","F7"));eq(e.Keybind.State,true);eq(e.Toggle.Toggled,true)
+    e.Keybind:Set(e.Enum.UserInputType.MouseButton2,"Toggle");local before=e.Callbacks
+    e:Dispatch(e:Input("MouseButton2"));eq(e.Callbacks,before)
 end)
 
 print(string.format("%d passed, %d failed",passed,failed))

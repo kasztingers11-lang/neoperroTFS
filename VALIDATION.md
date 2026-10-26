@@ -1,6 +1,13 @@
 # Validation — 2026-10-26
 
-## Current startup, tabs and visual revision
+## Current keyboard-bind repair
+
+- Live state showed AUTO SHOOT assigned to T, Roblox focused and the script menu visible. The shortcut handler rejected every bind while that menu was open. Keyboard shortcuts now work with the UI open or hidden; mouse-bound shortcuts remain suppressed over the open menu. Text entry, menu-key capture and feature-key capture retain priority.
+- **128 behavioral checks and six packaging/source checks pass**, plus local Luau compilation and analysis. Added regressions for keyboard Toggle/Hold with the UI visible and continued mouse/text/capture suppression.
+- Loaded the corrected bundle through Real live-reload with existing preferences restored. Native F8 input on a temporary distance-circle bind changed true to false with the menu open. Native Hold keydown changed false to true and keyup restored false. The original binding, mode and circle setting were restored; AUTO SHOOT remains assigned to T. No new console warnings/errors were reported. No firing, movement or purchasing test was performed.
+- The earlier download copy was found stale during the preceding live load. It was explicitly replaced with the distribution and hashes were checked equal before this repair was loaded. The final output must match the distribution; do not reuse an earlier downloaded copy.
+
+## Previous startup, tabs and visual revision
 
 - Found a startup blocker: App called SetVisible on a slider, a method this Drawing library does not implement. That call occurred before VISUALS/SETTINGS and gameplay controller initialization. Removed the entire preset editor and preset save/load/runtime handling as requested; the global rate remains.
 - Weapon order now sits in MAIN; the tabs are MAIN, VISUALS and SETTINGS. Increased rectangular window height from 620 to 740 to accommodate MAIN controls. Original logo, dark theme and comment-free source remain.
