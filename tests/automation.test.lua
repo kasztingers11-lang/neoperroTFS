@@ -1570,5 +1570,38 @@ test("failed ammo approach rotates away from the same blocked corner",function()
     eq(second.X,20);eq(second.Z,-3);assert(second~=first)
 end)
 
+test("normal auto shooting does not require optional gun-mod internals",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);c.Zombie("A",8,0)
+    c.Guns.BindWeapon=function()return nil end
+    getsenv=function()return {Range=100,mouse1Down=false}end
+    c.Lib.Flags.FarmAutoShoot=true;c.A:SnapshotZombies();c.A:PreRender()
+    eq(Presses,1);assert(c.A.Target);eq(c.A.PressedBinding.Basic,true);eq(c.Guns.Weapons[t],nil)
+end)
+
+test("basic gun binding is throttled and invalidates on script replacement",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);local calls=0
+    c.Guns.BindWeapon=function()return nil end;getsenv=function()calls=calls+1;return {Range=100,mouse1Down=false}end
+    local first=c.A:GunBinding(t);eq(c.A:GunBinding(t),first);eq(calls,1)
+    local old=t.GunScript;t:Remove(old);instance("GunScript","LocalScript",t)
+    local fresh=c.A:GunBinding(t);assert(fresh~=first);eq(calls,2)
+end)
+
+test("explicit native range permits foreground firing if environment lookup fails",function()
+    local c=setup();local t=c.Weapon("Pistol",c.P.Character);c.Zombie("A",8,0)
+    c.Guns.BindWeapon=function()error("optional discovery failed")end;getsenv=function()error("not ready")end
+    c.Lib.Flags.FarmAutoShoot=true;c.A:SnapshotZombies();c.A:PreRender();eq(Presses,1)
+    c.Lib.WindowVisible=true;Now=Now+1;c.A:PreRender();eq(c.A.MouseOwned,false)
+    eq(c.A:ShootBlocker(),"MENU / BACKGROUND FIRING UNSUPPORTED FOR THIS GUN")
+end)
+
+test("shoot diagnostic distinguishes disabled range target and transaction gates",function()
+    local c=setup();eq(c.A:ShootBlocker(),"AUTO SHOOT IS OFF")
+    c.Lib.Flags.FarmAutoShoot=true;eq(c.A:ShootBlocker(),"NO SUPPORTED GUN EQUIPPED")
+    local t=c.Weapon("Pistol",c.P.Character);local b=c.Guns:BindWeapon(t)
+    eq(c.A:ShootBlocker(),"NO ZOMBIES DETECTED IN WORKSPACE.ZOMBIES")
+    b.Environment.Range=0;t.CurrentValues.Range.Value=0;eq(c.A:ShootBlocker(),"NATIVE WEAPON RANGE UNAVAILABLE")
+    c.Shop.Pending={};eq(c.A:ShootBlocker(),"WAITING FOR SHOP / READY CONFIRMATION")
+end)
+
 print(string.format("%d passed, %d failed",passed,failed))
 assert(failed==0,"Offline behavioral tests failed")

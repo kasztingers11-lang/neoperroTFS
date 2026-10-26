@@ -113,7 +113,8 @@ return function(Library: any, Window: any)
         elseif Flags.GunNoRecoil == true then
             Notify("recoil-" .. Tool.Name, "No recoil is unavailable for " .. Tool.Name)
         end
-        B.UpdateSpread = filtergc("function", {Name = "UpdateSpread", Environment = Environment}, true)
+        local SpreadOK, Spread = pcall(function() return filtergc("function", {Name = "UpdateSpread", Environment = Environment}, true) end)
+        B.UpdateSpread = SpreadOK and type(Spread) == "function" and Spread or nil
         if not B.UpdateSpread and Flags.GunNoSpread == true then
             Notify("spread-" .. Tool.Name, "No spread is unavailable for " .. Tool.Name)
         end

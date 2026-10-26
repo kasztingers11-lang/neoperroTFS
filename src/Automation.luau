@@ -452,10 +452,56 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not Plan or Plan.Tool ~= Tool or not self.Target or Plan.Model ~= self.Target.Model then return end
         if #Plan.Pending < 16 then table.insert(Plan.Pending, os.clock()) end
          
-        if not self:BurstGate(Tool, Guns.Weapons[Tool]) then self:ReleaseMouse() end
+        if not self:BurstGate(Tool, self.PressedBinding or Guns.Weapons[Tool]) then self:ReleaseMouse() end
+    end
+    function A:GunBinding(Tool)
+        local Script = Tool and Tool:FindFirstChild("GunScript")
+        if not Script then return nil end
+        local Full = Guns.Weapons[Tool]
+        if Full and (not Full.Script or Full.Script == Script) then return Full end
+        self.InputBindings = self.InputBindings or setmetatable({}, {__mode = "k"})
+        local Cached = self.InputBindings[Tool]
+        if Cached and Cached.Script == Script and os.clock() < Cached.NextCheck then return Cached.Binding end
+        Cached = {Script = Script, NextCheck = os.clock() + 1}; self.InputBindings[Tool] = Cached
+        local OK, Binding = pcall(Guns.BindWeapon, Guns, Tool)
+        if OK and Binding then Cached.Binding = Binding; return Binding end
+        local ReadOK, Environment = pcall(getsenv, Script)
+        if not ReadOK or type(Environment) ~= "table" then
+            if Value(Tool, "Range", 0) <= 0 then return nil end
+            Environment = {}
+        end
+        Binding = {Tool = Tool, Script = Script, Environment = Environment, Basic = true}
+        Cached.Binding = Binding
+        return Binding
+    end
+    function A:WeaponRange(Tool, Binding)
+        local Range = Number(Binding and Binding.Environment.Range, 0, 0, 1000000)
+        if Range <= 0 then Range = Number(Value(Tool, "Range", 0), 0, 0, 1000000) end
+        return Range
+    end
+    function A:ShootBlocker()
+        if not Flags.FarmAutoShoot then return "AUTO SHOOT IS OFF" end
+        if self.Failed then return "AUTOMATION ERROR: " .. tostring(self.LastError or "unknown") end
+        if not self:Character() then return "WAITING FOR A LIVING CHARACTER" end
+        if self.Shop.Pending or self.Shop.RestockPending or self.Shop.ReadyPending then return "WAITING FOR SHOP / READY CONFIRMATION" end
+        if self.Refill.Pending then return "WAITING FOR AMMO-BOX INTERACTION" end
+        if self.Travelling and self.TravelPurpose ~= "ammo" then return "PAUSED DURING SHOP TRAVEL" end
+        local Tool = self:Equipped()
+        if not Tool then return "NO SUPPORTED GUN EQUIPPED" end
+        if Value(Tool, "Clip", 0) == 0 then return Value(Tool, "Ammo", 0) == 0 and "OUT OF AMMUNITION" or "WAITING FOR MAGAZINE RELOAD" end
+        if self.Reloading then return "WAITING FOR MAGAZINE RELOAD" end
+        if Value(Tool, "FireType", "Single") == "Charge" then return "CHARGE WEAPON REQUIRES MANUAL FIRE" end
+        local Binding = self:GunBinding(Tool)
+        if not Binding then return "NATIVE GUN ENVIRONMENT UNAVAILABLE" end
+        if self:WeaponRange(Tool, Binding) <= 0 then return "NATIVE WEAPON RANGE UNAVAILABLE" end
+        if #self.Zombies == 0 then return "NO ZOMBIES DETECTED IN WORKSPACE.ZOMBIES" end
+        if not self.Target then return "NO VISIBLE HEAD IN WEAPON RANGE" end
+        if not self:InputAvailable() and type(Binding.Environment.mouse1Down) ~= "boolean" then return "MENU / BACKGROUND FIRING UNSUPPORTED FOR THIS GUN" end
+        if not self:InputAvailable() then return "NATIVE BACKGROUND TRIGGER: " .. tostring(self.MouseOwned == true) end
+        return self.FarmStatus or "TARGET READY; WAITING FOR NATIVE FIRE"
     end
     function A:Shoot(Tool)
-        local B = Guns.Weapons[Tool] or Guns:BindWeapon(Tool)
+        local B = self:GunBinding(Tool)
         if not B then self:ReleaseMouse(); Status("FarmStatus", "Waiting for native gun script"); return end
         if Value(Tool, "Clip", 0) == 0 then
             self:ReleaseMouse()
@@ -1017,8 +1063,8 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             self:ReleaseAim(); self:Shoot(Tool); return
         end
         if self.Reloading then self:ReleaseAim(); return end
-        local B = Guns.Weapons[Tool] or Guns:BindWeapon(Tool)
-        local Range = B and B.Environment.Range or Value(Tool, "Range", 0)
+        local B = self:GunBinding(Tool)
+        local Range = self:WeaponRange(Tool, B)
         local Head = P.Character:FindFirstChild("Head")
         local Origin = Head and Head.Position or Root.Position + Vector3.new(0, 1.5, 0)
         if (not self.Target or self.Target.Humanoid.Health <= 0) and os.clock() - (self.LastZombieScan or -10) >= 0.03 then
@@ -1045,7 +1091,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     function A:Fail(Error)
         self:ReleaseAim(); self:StopMovement(); self:CancelTravel(); self.Navigation:Reset(); self:HideVisuals()
         if not self.Shop.Pending then Guns:SetSuspended(false) end
-        self.Failed = true
+        self.Failed = true; self.LastError = tostring(Error)
         Notify("runtime-error", "Automation paused: " .. tostring(Error))
         self:RefreshRender()
     end
