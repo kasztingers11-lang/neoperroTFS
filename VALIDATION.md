@@ -1,6 +1,14 @@
 # Validation — 2026-10-26
 
-## Current permanent background/menu operation
+## Current loadout, supply-route and upgrade-plan revision
+
+- **121 production behavior checks and four packaging checks pass**, with local Luau compilation and analysis. No live game/MCP was used for this revision; live damage, actual FPS, native purchase acceptance and route safety remain unverified.
+- Added LOADOUT controls for main/backup weapon preferences, opt-in per-weapon rapid-fire rates and return-to-main. Readiness outranks preference, unsupported charges remain excluded, and refill ownership prevents an immediate switch away from a backup waiting at the box. Presets and smart cadence use the same requested rate; deleting an override restores global behavior. Profile maps validate numeric values and defer choices for late ownership.
+- Native upgrade plans rank existing head/damage-related category names. Selected-only refuses unrelated categories; Manual retains the existing explicit selection. Transactions remain opt-in, cash-limited, serialized and acknowledged. Category meaning is inferred from names, not newly verified native upgrade metadata.
+- Resupply compares up to three navmesh routes per two-second batch using travel time and swept threat separation; failed batches rotate through candidates. Unreachable/crossing routes are rejected, stale player positions are discarded and box eligibility/stock is rechecked on selection. Cached risk is approximate; execution retains ordinary wall/ground and emergency retreat behavior.
+- Regression checks cover all four additions, preset fallback/restoration, native upgrade ordering, route cost, farther reachable stock, path throttling, stale positions and unload cancellation. An accidental renderer call was caught by local analysis and removed before publication.
+
+## Previous permanent background/menu operation
 
 - Removed the background toggle and every gameplay dependency on its saved flag. Enabled automation no longer pauses for neoperro visibility, native ESC, text entry, key capture or focus loss. Individual switches, STOP AUTOMATION, errors and unload retain their stop behavior.
 - Physical input eligibility is separate. Menus/background use the existing native firing latch, with explicit owned-mode handoff; physical Shift and manual movement-key takeover are suppressed while a menu or text capture owns input. Focus loss preserves route/travel state while releasing owned physical inputs. Gun mods stay enabled across focus changes.

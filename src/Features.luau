@@ -24,10 +24,12 @@ return function(Library: any, Window: any)
         for _, Key in ipairs(Keys) do if Flags[Key] == true then return true end end
         return false
     end
-    local function FireRate()
-        local Rate = tonumber(Flags.GunFireRate)
+    function F:RequestedRate(Tool)
+        local Saved = Flags.GunUsePresets and Library.GunRateProfiles and Tool and Library.GunRateProfiles[Tool.Name]
+        local Rate = tonumber(Saved)
+        if not Rate or Rate ~= Rate or math.abs(Rate) == math.huge then Rate = tonumber(Flags.GunFireRate) end
         if not Rate or Rate ~= Rate or math.abs(Rate) == math.huge then Rate = 60 end
-        return math.clamp(Rate, 1, 120) * 60
+        return math.clamp(Rate, 1, 120)
     end
     local function Assign(Value, Desired, Enabled)
         if not Value or not Value:IsA("ValueBase") then return false end
@@ -130,7 +132,7 @@ return function(Library: any, Window: any)
         local NativeType = TypeRecord and (TypeValue.Value ~= TypeRecord.Applied and TypeValue.Value or TypeRecord.Original) or TypeValue and TypeValue.Value
         local Rapid = Flags.GunRapidFire == true and not Suspended and NativeType ~= "Charge"
         for _, Prefix in ipairs({"", "Alt"}) do
-            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), FireRate(), Rapid)
+            Assign(V:FindFirstChild(Prefix .. "AttackSpeed"), self:RequestedRate(Tool) * 60, Rapid)
             Assign(V:FindFirstChild(Prefix .. "BurstDelay"), 0, Rapid)
         end
         Assign(V:FindFirstChild("FireType"), "FullAuto", Rapid)
@@ -244,7 +246,7 @@ return function(Library: any, Window: any)
     Connect(P.ChildAdded, function(Child)
         if Child:IsA("Backpack") then F:WatchInventory(Child, "BackpackConnections") end
     end)
-    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "FarmAutoShoot"}) do
+    for _, Key in ipairs({"GunRapidFire", "GunNoSpread", "GunNoRecoil", "GunFireRate", "GunUsePresets", "FarmAutoShoot"}) do
         local Item = Library.Items[Key]
         if Item then
             local Previous = Item.Callback

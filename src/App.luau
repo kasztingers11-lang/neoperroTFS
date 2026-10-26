@@ -35,6 +35,7 @@ end
 Upgrade:Dropdown({Title = "WEAPON", Flag = "UpgradeWeapon", List = {"Select weapon"}, Default = "Select weapon", Callback = RefreshUpgradeControls})
 Priority = Upgrade:Dropdown({Title = "PRIORITIZE UPGRADE", Flag = "UpgradePriority", List = {"Select upgrade"}, Default = "Select upgrade"})
 UpgradeMode = Upgrade:Dropdown({Title = "UPGRADE MODE", Flag = "UpgradeMode", List = {"Selected upgrade only", "All upgrades"}, Default = "Selected upgrade only"})
+Upgrade:Dropdown({Title = "UPGRADE PLAN", Flag = "UpgradePlan", List = {"Manual", "Damage first", "Headshots first"}, Default = "Manual"})
 Upgrade:Toggle({Title = "GO TO SHOP IF NEEDED", Flag = "UpgradeShopFallback", State = true})
 Upgrade:Toggle({Title = "NOTIFY WHEN COMPLETE", Flag = "UpgradeNotify", State = true})
 Upgrade:Slider({Title = "KEEP CASH FOR SUPPLIES", Flag = "FarmCashReserve", Symbol = "", Default = 0, Min = 0, Max = 5000, Decimals = 50})
@@ -48,6 +49,48 @@ local Control = Main:Section("CONTROL", "Right")
 Control:Button({Title = "START FARMING", Callback = function() if Library.Automation then Library.Automation:StartFarm() end end})
 Control:Button({Title = "STOP AUTOMATION", Callback = function() if Library.Automation then Library.Automation:StopAutomation() end end})
 Control:Toggle({Title = "AUTO START ROUND", Flag = "FarmAutoReady"})
+
+local Loadout = Window:Tab("LOADOUT")
+local Weapons = Loadout:Section("WEAPON ORDER", "Left")
+Weapons:Dropdown({Title = "MAIN WEAPON", Flag = "FarmMainWeapon", List = {"Automatic"}, Default = "Automatic"})
+Weapons:Dropdown({Title = "BACKUP WEAPON", Flag = "FarmBackupWeapon", List = {"Automatic"}, Default = "Automatic"})
+Weapons:Toggle({Title = "RETURN TO MAIN", Flag = "FarmReturnMain", State = true})
+local Rates = Loadout:Section("FIRE RATE PRESETS", "Right")
+Rates:Toggle({Title = "USE WEAPON PRESETS", Flag = "GunUsePresets"})
+Library.GunRateProfiles = {}
+local EditingRate, RateSlider
+local function RefreshRateEditor(Name)
+    if not RateSlider then return end
+    EditingRate = true
+    RateSlider:Set(Library.GunRateProfiles[Name] or Library.Flags.GunFireRate or 60)
+    RateSlider:SetVisible(Name ~= "Select weapon")
+    EditingRate = false
+end
+Rates:Dropdown({Title = "PRESET WEAPON", Flag = "GunPresetWeapon", List = {"Select weapon"}, Default = "Select weapon", Callback = RefreshRateEditor})
+RateSlider = Rates:Slider({Title = "PRESET SHOTS/S", Flag = "GunPresetRate", Symbol = "", Default = 60, Min = 1, Max = 120, Decimals = 1, Callback = function(Rate)
+    local Name = Library.Flags.GunPresetWeapon
+    if not EditingRate and Name and Name ~= "Select weapon" then
+        Library.GunRateProfiles[Name] = Rate
+        if Library.Features then Library.Features:QueueRefresh() end
+    end
+end})
+Rates:Button({Title = "USE GLOBAL RATE FOR WEAPON", Callback = function()
+    Library.GunRateProfiles[Library.Flags.GunPresetWeapon] = nil
+    RefreshRateEditor(Library.Flags.GunPresetWeapon)
+    if Library.Features then Library.Features:QueueRefresh() end
+end})
+Library.RefreshLoadout = function(Names)
+    local Order = {"Automatic"}
+    for _, Name in ipairs(Names) do if Name ~= "Select weapon" then table.insert(Order, Name) end end
+    for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon"}) do
+        local Selected = Library.Flags[Key]
+        Library.Items[Key]:SetOptions(Order, table.find(Order, Selected) and Selected or "Automatic")
+    end
+    local Selected = Library.Flags.GunPresetWeapon
+    Library.Items.GunPresetWeapon:SetOptions(Names, table.find(Names, Selected) and Selected or "Select weapon")
+    RefreshRateEditor(Library.Flags.GunPresetWeapon)
+end
+RefreshRateEditor("Select weapon")
 
 local Visuals = Window:Tab("VISUALS")
 local Impact = Visuals:Section("SHOT EFFECTS", "Left")

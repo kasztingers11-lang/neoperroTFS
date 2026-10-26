@@ -61,7 +61,7 @@ return function()
         end
         return Box
     end
-    function A:Nearest(Root)
+    function A:Nearest(Root, Cost)
         if os.clock() - self.LastBoxes >= 1 then
             self.LastBoxes = os.clock(); self.Boxes = {}
             local Map = W:FindFirstChild("Map")
@@ -79,11 +79,12 @@ return function()
                 end
             end
         end
-        local Best, Distance = nil, math.huge
+        local Best, Distance, Score = nil, math.huge, math.huge
         for _, B in ipairs(self.Boxes) do
             if self:Eligible(B) and os.clock() >= (self.BlockedUntil[B] or 0) then
                 local D = (Root.Position - B.PrimaryPart.Position).Magnitude
-                if D < Distance then Best = B; Distance = D end
+                local S = Cost and Cost(B, D) or D
+                if type(S) == "number" and S < Score then Best = B; Distance = D; Score = S end
             end
         end
         return Best, Distance

@@ -1,29 +1,24 @@
-# Game-based proposals
+# Implemented efficiency work and remaining proposals
 
-These are proposals, not implemented features or newly tested purchases. They come from the inspected native v312 game data and handlers; availability still depends on the player's current locks, cash, perks and loadout.
+Implemented and tested offline:
 
-1. **Ammo-box upgrade priorities.** Expose the native AmmoSpeed and AmmoRepair categories alongside weapon upgrades. AmmoSpeed advertises faster normal interactions; AmmoRepair advertises stock recovery at night. Read current levels/prices/locks from the native shop rather than shortening a local timer.
-2. **Resupply-aware perk planning.** Show Ammo Logistics (AmmoBoxRefill), which advertises nighttime box regeneration near the shop, and Supply Expert's interaction/ammo-efficiency benefits. Let the player choose these in the normal loadout flow; do not silently change equipped perks.
-3. **Native Bottomless Reserve preference.** Surface the Pistol's real UnlimitedAmmo / Bottomless Reserve upgrade when owned and unlocked, including its money-earned tradeoff and actual current price. This is reserve ammunition, not an unlimited magazine or removed reload.
-4. **Cost-aware supply planning.** The configurable cash reserve is now implemented for optional weapon upgrades. A future planner could calculate the reserve from actual restock costs and player preferences.
-5. **Between-wave maintenance order.** Extend the existing native repair path to prioritize shop/barricade/armor repairs where available, then upgrades/resupply, then Ready. Keep spending opt-in, serialized and stop on uncertain results.
+- SMART BURSTS with actual local-shot accounting and bounded target scans.
+- Fractional reserve priority, optional supply cash reserve and swept retreat checks.
+- Permanent background/menu operation with separate physical input ownership.
+- LOADOUT main/backup preferences and return-to-main after inventory resupply.
+- Opt-in per-weapon rapid-fire rate presets with profile persistence and global fallback.
+- Supply-box ranking by reachable navmesh travel time and threat exposure.
+- Manual / Damage first / Headshots first ordering of existing native upgrade categories.
 
-The most useful next step is a native ammo-box upgrade planner. It requires fresh verification of the game's current upgrade handlers. The resupply cash budget is implemented, with default zero to preserve existing spending preferences.
+None of these additions establish live damage, survival or a fixed frame rate. See VALIDATION.md for current evidence.
 
-## Proposals after the movement recording
+## Remaining game-based proposals
 
-- **Preferred main and backup:** let the player choose weapon order and return to the main weapon after a confirmed refill. Current automatic switching already favors supported loaded backups when the equipped gun is dry.
-- **Threat-speed distance:** estimate actual closing speed and choose a sustainable retreat gap instead of using distance alone; account for stamina recovery and avoid increasing the radius beyond reachable space.
-- **Reachable resupply fallback:** rank alternate permitted boxes by reachable route, stock and threat exposure, with a player-selected fallback when no safe stocked box exists.
-- **Optional route preview:** display only the committed collision-checked route and destination, making blocked exits visible without restoring the removed status paragraphs.
+These come from previously inspected native v312 data. Current availability, locks, prices and handlers need fresh verification before implementation.
 
-These remain proposals. SMART BURSTS, fractional reserve selection, optional supply cash reserve and swept-path threat checks are now implemented and tested offline. Adaptive retreat distance and an ammo-box upgrade planner are not implemented. Stable steering, checked travel ownership, manual override and stamina-aware sprint remain in place.
-
-## Efficiency proposals after permanent background operation
-
-- **Preferred main/backup and return after refill:** avoid sticking to a weaker backup after the main weapon becomes usable.
-- **Exposure-aware resupply:** score stocked, permitted boxes by checked path length and predicted threat exposure, rather than straight-line proximity alone.
-- **Native weapon upgrade profiles:** prioritize damage/headshot efficiency or sustainable fire rate within the actual game upgrade system. Do not assume a cosmetic damage/range value changes server damage.
-- **Weapon-specific fire-rate presets:** save a tested rate per weapon; choose the lowest rate that reliably meets the intended damage cadence rather than globally maximizing clicks. Accepted server throughput requires live measurement.
-
-These are proposals, not implemented or live-verified features.
+1. **Native ammo-box upgrade planner.** Expose AmmoSpeed and AmmoRepair through the actual upgrade flow; retain native interaction timing and stock rules.
+2. **Resupply perk planning.** Let the player select normal Ammo Logistics / Supply Expert options, showing native tradeoffs instead of silently replacing the loadout.
+3. **Native Bottomless Reserve preference.** Surface the Pistol's real reserve-ammo upgrade when owned/unlocked, with its actual price and money-earned tradeoff. It does not remove magazine reloads.
+4. **Adaptive retreat distance.** Account for threat closing speed, stamina recovery and reachable space; retain a bounded user-selected radius.
+5. **Optional committed-route preview.** Show the actual checked route/destination without restoring removed status paragraphs.
+6. **Between-wave repair priorities.** Extend serialized, opt-in spending to verified shop/barricade/armor repair handlers and retain uncertainty stops before Ready.

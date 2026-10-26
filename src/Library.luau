@@ -282,7 +282,7 @@ do
         return "neoperroTFS/Configs/" .. Name .. ".json"
     end
     Utility.SaveConfig = function(Name)
-        local Values = {MenuKey = Library.MenuKey.Name}
+        local Values = {MenuKey = Library.MenuKey.Name, GunRateProfiles = Library.GunRateProfiles}
         for Flag, Item in pairs(Library.Items) do
             if Item.TypeOf == "Colorpicker" then
                 Values[Flag] = {Kind = "Color", HSV = Item.Colors.HSV}

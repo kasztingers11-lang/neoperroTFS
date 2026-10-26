@@ -153,6 +153,14 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         self.Scanning = true
         Library.Items.UpgradeWeapon:SetOptions(Names, Selected)
         self.Scanning = false
+        self.ScanningLoadout = true
+        if Library.RefreshLoadout then Library.RefreshLoadout(Names) end
+        if self.SavedLoadout then
+            for Key, Name in pairs(self.SavedLoadout) do
+                if Owned[Name] ~= nil and Library.Items[Key] then Library.Items[Key]:Set(Name); self.SavedLoadout[Key] = nil end
+            end
+        end
+        self.ScanningLoadout = false
         self:ScanPriorities()
     end
     function A:ScanPriorities()
@@ -181,6 +189,21 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         Library.Items.UpgradePriority:SetOptions(Options, Selected)
     end
     function A:RestoreSelection(Values)
+        local Profiles = {}
+        if type(Values.GunRateProfiles) == "table" then
+            local Count = 0
+            for Name, Rate in pairs(Values.GunRateProfiles) do
+                if type(Name) == "string" and #Name <= 100 and type(Rate) == "number" and Rate == Rate and math.abs(Rate) < math.huge and Count < 128 then
+                    Profiles[Name] = math.clamp(Rate, 1, 120); Count = Count + 1
+                end
+            end
+        end
+        Library.GunRateProfiles = Profiles
+        self.SavedLoadout = {}
+        for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon", "GunPresetWeapon"}) do
+            if type(Values[Key]) == "string" then self.SavedLoadout[Key] = Values[Key] end
+        end
+        if Guns.QueueRefresh then Guns:QueueRefresh() end
         if type(Values.UpgradeWeapon) == "string" then self.SavedWeapon = Values.UpgradeWeapon end
         if type(Values.UpgradePriority) == "string" then self.SavedPriority = Values.UpgradePriority end
         self:ScanInventory()
@@ -310,7 +333,8 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
                     local Clip = Value(T, "Clip", 0)
                     local Ready = Clip ~= 0 and 100000 or 0
                     local Loaded = Clip < 0 and 1000 or math.clamp(Clip, 0, 1000)
-                    local Current = Ready + Loaded * 100 + math.clamp(Value(T, "Ammo", 0), 0, 9999)
+                    local Preference = T.Name == Flags.FarmMainWeapon and 2000000 or T.Name == Flags.FarmBackupWeapon and 1000000 or 0
+                    local Current = Ready * 100 + Preference + Loaded * 100 + math.clamp(Value(T, "Ammo", 0), 0, 9999)
                     if Current > Score then Best = T; Score = Current end
                 end
             end
@@ -322,6 +346,19 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
                 self.Equipping = false
             end)
         end
+    end
+    function A:ReturnMain(H)
+        if not H or self.Equipping or os.clock() < (self.NextEquip or 0) or not Flags.FarmAutoShoot or Flags.FarmReturnMain ~= true or self.Reloading or self.Refill.Pending
+            or self.Shop.Pending or self.Shop.RestockPending or self.Shop.ReadyPending or self.TravelPurpose == "ammo" then return end
+        -- Finish owned inventory resupply before taking a freshly equipped backup away from the box.
+        if Flags.FarmAutoRefill and self:AmmoTool() then return end
+        local Equipped = self:Equipped()
+        if not Equipped or Equipped.Name == Flags.FarmMainWeapon then return end
+        local Bag = P:FindFirstChildOfClass("Backpack")
+        local Main = Bag and Bag:FindFirstChild(Flags.FarmMainWeapon or "")
+        if Main and Main:IsA("Tool") and Main:FindFirstChild("GunScript") and Main:FindFirstChild("CurrentValues")
+            and Value(Main, "FireType", "Single") ~= "Charge"
+            and (Value(Main, "Clip", 0) ~= 0 or Value(Main, "Ammo", 0) ~= 0) then self:ReleaseAim(); self:Equip(H, Main) end
     end
     function A:CameraState()
         self:RestoreView()
@@ -367,7 +404,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:FireInterval(Tool, Binding)
         local Rate = Number(Binding and Binding.Environment.LAS, Number(Value(Tool, "AttackSpeed", 300), 300, 1, 7200), 1, 7200)
-        if Flags.GunRapidFire and not Guns.Suspended then Rate = math.min(Rate, Number(Flags.GunFireRate, 60, 1, 120) * 60) end
+        if Flags.GunRapidFire and not Guns.Suspended then Rate = math.min(Rate, (Guns.RequestedRate and Guns:RequestedRate(Tool) or Number(Flags.GunFireRate, 60, 1, 120)) * 60) end
         return 60 / Rate
     end
     function A:BurstGate(Tool, Binding)
@@ -569,6 +606,64 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         end
         return false
     end
+    function A:SupplyRouteCost(Points, Zombies, Speed)
+        if #Points < 2 or #Points > 64 then return nil end
+        local Cost = 0
+        for I = 2, #Points do
+            local Start, Finish = Points[I - 1].Position, Points[I].Position
+            local Length = (Finish - Start).Magnitude
+            local Gap = self.Navigation:SweptGap(Start, Finish, Zombies, Speed)
+            if Gap < 6 then return nil end
+            Cost = Cost + Length / Speed * (1 + 20 / math.max(6, Gap))
+        end
+        return Cost
+    end
+    function A:SupplyBox(H, Root)
+        local Candidates = {}
+        local Nearest, Distance = self.Refill:Nearest(Root, function(Box, D)
+            table.insert(Candidates, {Box = Box, Distance = D})
+            return D
+        end)
+        -- A nearby native interaction needs no route; adapters without scoring retain nearest selection.
+        if not Nearest or Distance < 7 or #Candidates == 0 then return Nearest, Distance end
+        local Now = os.clock()
+        local Cache = self.SupplyCache
+        local Valid = Cache and Cache.Root == Root and Now - Cache.At < 4 and (Root.Position - Cache.Position).Magnitude < 10
+        if not self.SupplyPlanning and Now >= (self.NextSupplyPlan or 0) and (not Valid or Now - Cache.At >= 2) then
+            self.SupplyPlanning = true; self.NextSupplyPlan = Now + 2
+            local Token = {}; self.SupplyToken = Token
+            local Position, Zombies = Root.Position, self.Zombies
+            local Speed = Number(H and H.WalkSpeed, 16, 1, 100)
+            table.sort(Candidates, function(X, Y) return X.Distance < Y.Distance end)
+            task.spawn(function()
+                local Costs = {}
+                local First = self.SupplyCursor or 1
+                for I = 1, math.min(3, #Candidates) do
+                    if not self.Alive or self.SupplyToken ~= Token or Root.Parent ~= P.Character then break end
+                    local Box = Candidates[(First + I - 2) % #Candidates + 1].Box
+                    local OK, Cost = pcall(function()
+                        if not Box.PrimaryPart then return nil end
+                        local Away = Unit(Flat(Position - Box.PrimaryPart.Position))
+                        if Away.Magnitude < 0.01 then Away = Vector3.new(1, 0, 0) end
+                        local Goal = Box.PrimaryPart.Position + Away * 5
+                        local Path = Paths:CreatePath({AgentRadius = 2, AgentHeight = 5, AgentCanJump = true, WaypointSpacing = 4})
+                        Path:ComputeAsync(Position, Goal)
+                        if Path.Status ~= Enum.PathStatus.Success then return nil end
+                        return self:SupplyRouteCost(Path:GetWaypoints(), Zombies, Speed)
+                    end)
+                    if OK and Cost then Costs[Box] = Cost end
+                end
+                if self.SupplyToken ~= Token then return end
+                self.SupplyPlanning = false
+                self.SupplyCursor = next(Costs) and 1 or (First + 2) % #Candidates + 1
+                if self.Alive and Root.Parent == P.Character and (Root.Position - Position).Magnitude < 10 then
+                    self.SupplyCache = {Root = Root, Position = Position, At = os.clock(), Costs = Costs}
+                end
+            end)
+        end
+        if not Valid then return nil end
+        return self.Refill:Nearest(Root, function(Box) return Cache.Costs[Box] or math.huge end)
+    end
     function A:AutoRefill(H, Root)
         local State = self.Refill:Poll()
         if State == "refilled" then Status("AmmoStatus", "Reserve refilled")
@@ -589,7 +684,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if self.TravelPurpose == "ammo" and self.AmmoDestination and self.PathFailedUntil and os.clock() < self.PathFailedUntil then
             self.Refill:Avoid(self.AmmoDestination, 8); self:CancelTravel(); self.PathFailedUntil = nil
         end
-        local Box, Distance = self.Refill:Nearest(Root)
+        local Box, Distance = self:SupplyBox(H, Root)
         if not Box then Status("AmmoStatus", "No stocked ammo box available"); return false end
         local Near = self.Navigation:Separation(Root.Position, self.Zombies)
         local Radius = Number(Flags.FarmDistance, 24, 5, 100)
@@ -599,6 +694,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
             Status("AmmoStatus", "Retreating before resupply"); return false
         end
         if Distance >= 7 then
+            if self.AmmoDestination ~= Box and self.TravelPurpose == "ammo" then self:CancelTravel(); self.PathFailedUntil = nil end
             self.AmmoDestination = Box
             local Delta = Unit(Flat(Root.Position - Box.PrimaryPart.Position))
             if Delta.Magnitude < 0.01 then Delta = Vector3.new(1, 0, 0) end
@@ -638,14 +734,30 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     function A:OrderedLevels()
         local Levels = self.Shop:Levels(Flags.UpgradeWeapon)
         if not Levels or self.Inventory[Flags.UpgradeWeapon] == nil then return {} end
+        local Plan = Flags.UpgradePlan or "Manual"
+        local function Rank(L)
+            local Name = L.Name:lower()
+            local Head = Name:find("head", 1, true) ~= nil
+            local Damage = Name:find("damage", 1, true) ~= nil or Name:find("stopping power", 1, true) ~= nil or Name:find("ap rounds", 1, true) ~= nil
+            if Plan == "Headshots first" then return Head and 0 or Damage and 1 or 2 end
+            return Damage and 0 or Head and 1 or 2
+        end
+        if Plan ~= "Manual" then
+            local List = {}
+            for _, L in ipairs(Levels:GetChildren()) do if IsLevel(L) then table.insert(List, L) end end
+            table.sort(List, function(X, Y) local A1, B1 = Rank(X), Rank(Y); return A1 < B1 or A1 == B1 and X.Name < Y.Name end)
+            if Flags.UpgradeMode ~= "All upgrades" then
+                for _, L in ipairs(List) do if Rank(L) < 2 then return {L} end end
+                return {} -- never silently select an unrelated category
+            end
+            return List
+        end
         local Priority = Levels:FindFirstChild(Flags.UpgradePriority)
         if not IsLevel(Priority) then return {} end
         local List = {Priority}
         if Flags.UpgradeMode == "All upgrades" then
             local Rest = {}
-            for _, L in ipairs(Levels:GetChildren()) do
-                if L ~= Priority and IsLevel(L) then table.insert(Rest, L) end
-            end
+            for _, L in ipairs(Levels:GetChildren()) do if L ~= Priority and IsLevel(L) then table.insert(Rest, L) end end
             table.sort(Rest, function(X, Y) return X.Name < Y.Name end)
             for _, L in ipairs(Rest) do table.insert(List, L) end
         end
@@ -804,6 +916,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         self:CameraState()
         local _, H, Root = self:Character()
         if Active and self:Focused() and Now - (self.LastZombieScan or -10) >= 0.1 then self:SnapshotZombies() end
+        self:ReturnMain(H)
         local Radius = math.max(Number(Flags.FarmDistance, 24, 5, 100), self.ResupplyEscapeRadius or 0)
         local Distance = Root and self.Navigation:Separation(Root.Position, self.Zombies) or math.huge
         local Resupply = Flags.FarmAutoRefill and Root and self:AmmoTool() and self.Refill:Nearest(Root)
@@ -917,7 +1030,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     end
     function A:Destroy()
         if not self.Alive then return end
-        self.Alive = false; self.PathToken = nil
+        self.Alive = false; self.PathToken = nil; self.SupplyToken = nil
         self:ReleaseAim(); self:StopMovement(); self:HideVisuals()
         if self.ReleasePending or self.SprintReleasePending then
             -- OS releases ignored while unfocused must finish once focus returns, including after unload.
@@ -953,7 +1066,12 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
         if not A.Scanning then A.SavedWeapon = nil; A.SavedPriority = nil end
         A:ScanPriorities(); A:CancelTravel()
     end)
+    for _, Key in ipairs({"FarmMainWeapon", "FarmBackupWeapon", "GunPresetWeapon"}) do
+        Own(Key, function() if A.SavedLoadout and not A.ScanningLoadout then A.SavedLoadout[Key] = nil end end)
+    end
     Own("FarmCashReserve", function() A.UpgradeIdle = false; A.ReadyQuietSince = nil end)
+    Own("UpgradePlan", function() A.UpgradeIdle = false; A.ReadyQuietSince = nil end)
+    Own("UpgradeMode", function() A.UpgradeIdle = false; A.ReadyQuietSince = nil end)
     Own("UpgradePriority", function() A.SavedPriority = nil; A.UpgradeIdle = false; A.ReadyQuietSince = nil end)
     Own("UpgradeEnabled", function(V) A.Notices["upgrade-stop"] = nil; if not V then A:CancelTravel() end end)
     Own("UpgradeShopFallback", function(V) if not V then A:CancelTravel() end end)
@@ -966,7 +1084,7 @@ return function(Library: any, Window: any, Guns: any, CreateShopAdapter: any, Cr
     Own("FarmShowCircle", function() A:HideVisuals() end)
     Own("CameraThirdPerson", function() A:CameraState() end)
     Own("CameraDistance", function() A:CameraState() end)
-    Connect(P.CharacterAdded, function(C) A:ReleaseAim(); A:StopMovement(); A:CancelTravel(); A:Watch("Character", C) end)
+    Connect(P.CharacterAdded, function(C) A.SupplyToken = nil; A.SupplyPlanning = false; A.SupplyCache = nil; A:ReleaseAim(); A:StopMovement(); A:CancelTravel(); A:Watch("Character", C) end)
     Connect(P.ChildAdded, function(C)
         if C:IsA("Backpack") or C.Name == "Backgear" or C.Name == "Upgrades" then A:Watch(C.Name, C) end
     end)

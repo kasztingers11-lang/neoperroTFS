@@ -161,7 +161,7 @@ local function setup(native)
     local lib={Flags=flags,Items={},WindowVisible=false}
     function lib:ChangeVisible(v) self.WindowVisible=v end
     local keys={"UpgradeWeapon","UpgradePriority","UpgradeMode","UpgradeEnabled","UpgradeShopFallback","FarmAutoShoot","FarmRestockBox","FarmBackground","FarmAutoReady",
-        "FarmKeepDistance","FarmUseSprint","FarmShowDistance","FarmShowCircle","FarmAutoRefill","CameraThirdPerson","CameraDistance"}
+        "FarmMainWeapon","FarmBackupWeapon","GunPresetWeapon","GunUsePresets","UpgradePlan","FarmReturnMain","FarmKeepDistance","FarmUseSprint","FarmShowDistance","FarmShowCircle","FarmAutoRefill","CameraThirdPerson","CameraDistance"}
     for _,key in ipairs(keys) do
         local item={Callback=function() end,List={}}
         function item:Set(v) flags[key]=v; self.Callback(v) end
@@ -1277,6 +1277,104 @@ test("actual menu visibility preserves committed movement and smart shot plan",f
     eq(c.A.Navigation.Route,route);eq(c.A.MoveDirection.X,1);eq(Releases,1)
     Now=Now+1;c.A:PreRender();eq(c.A.MouseMode,"native");eq(b.Environment.mouse1Down,true)
     c.Lib:ChangeVisible(false);eq(b.Environment.mouse1Down,false);eq(c.A.Navigation.Route,route)
+end)
+
+test("preferred backup wins among loaded guns while readiness outranks empty main",function()
+    local c=setup();local main=c.Weapon("Main");local backup=c.Weapon("Backup");local other=c.Weapon("Other")
+    c.Lib.Flags.FarmAutoShoot=true;c.Lib.Flags.FarmMainWeapon="Main";c.Lib.Flags.FarmBackupWeapon="Backup"
+    main.CurrentValues.Clip.Value=0;backup.CurrentValues.Clip.Value=1;other.CurrentValues.Clip.Value=20
+    c.A:Equip(c.H);flush();eq(backup.Parent,c.P.Character)
+end)
+
+test("preferred main returns after reserve refill without switching during interaction",function()
+    local c=setup();local main=c.Weapon("Main");local backup=c.Weapon("Backup",c.P.Character)
+    c.Lib.Flags.FarmAutoShoot=true;c.Lib.Flags.FarmReturnMain=true;c.Lib.Flags.FarmMainWeapon="Main"
+    main.CurrentValues.Clip.Value=0;main.CurrentValues.Ammo.Value=0;c.A:ReturnMain(c.H);eq(#Tasks,0)
+    main.CurrentValues.Ammo.Value=50;c.Refill.Pending={};c.A:ReturnMain(c.H);eq(#Tasks,0)
+    c.Refill.Pending=nil;c.A:ReturnMain(c.H);eq(#Tasks,1);flush();eq(main.Parent,c.P.Character)
+    c.Lib.Flags.FarmReturnMain=false;eq(c.Lib.Flags.FarmAutoShoot,true)
+end)
+
+test("loadout preferences restore when ownership arrives later and rate maps validate",function()
+    local c=setup();c.A:RestoreSelection({FarmMainWeapon="Late",FarmBackupWeapon="Second",GunRateProfiles={Late=25,Bad=0/0,High=900}})
+    eq(c.Lib.GunRateProfiles.Late,25);eq(c.Lib.GunRateProfiles.Bad,nil);eq(c.Lib.GunRateProfiles.High,120)
+    c.Weapon("Late");c.A:ScanInventory();eq(c.Lib.Flags.FarmMainWeapon,"Late");eq(c.A.SavedLoadout.FarmBackupWeapon,"Second")
+    c.Lib.Items.FarmBackupWeapon:Set("Automatic");c.Weapon("Second");c.A:ScanInventory();eq(c.Lib.Flags.FarmBackupWeapon,"Automatic")
+end)
+
+test("per weapon fire rates apply consistently and fall back to global",function()
+    local c=setup();c.A:Destroy();local x=c.Weapon("X");local y=c.Weapon("Y")
+    c.Lib.Flags.GunRapidFire=true;c.Lib.Flags.GunUsePresets=true;c.Lib.Flags.GunFireRate=60;c.Lib.GunRateProfiles={X=17}
+    local g=GunFactory(c.Lib,{SendNotification=function()end})
+    eq(g:RequestedRate(x),17);eq(x.CurrentValues.AttackSpeed.Value,1020);eq(y.CurrentValues.AttackSpeed.Value,3600)
+    c.Lib.Flags.GunUsePresets=false;g:ApplyTool(x);eq(x.CurrentValues.AttackSpeed.Value,3600)
+    c.Lib.Flags.GunUsePresets=true;c.Lib.GunRateProfiles.X=0/0;eq(g:RequestedRate(x),60)
+    g:Destroy();eq(x.CurrentValues.AttackSpeed.Value,300)
+end)
+
+test("smart shot interval uses the same selected weapon preset as gun mods",function()
+    local c=setup();local t=c.Weapon("X");c.Lib.Flags.GunRapidFire=true
+    c.Guns.RequestedRate=function(_,tool)eq(tool,t);return 17 end
+    local b=c.Guns:BindWeapon(t);b.Environment.LAS=7200
+    assert(math.abs(c.A:FireInterval(t,b)-1/17)<0.00001)
+end)
+
+test("upgrade plans sort actual native damage and headshot categories",function()
+    local c=setup();c.Weapon("Pistol");local levels=c.Levels.Pistol
+    local head=instance("Headshot Damage","IntConstrainedValue",levels,{Value=0,MaxValue=3})
+    c.A:ScanInventory();c.Lib.Items.UpgradeWeapon:Set("Pistol");c.Lib.Flags.UpgradeMode="All upgrades"
+    c.Lib.Flags.UpgradePlan="Headshots first";local list=c.A:OrderedLevels();eq(list[1],head);eq(list[2].Name,"AP Rounds")
+    c.Lib.Flags.UpgradePlan="Damage first";eq(c.A:OrderedLevels()[1].Name,"AP Rounds")
+    c.Lib.Flags.UpgradeMode="Selected upgrade only";eq(#c.A:OrderedLevels(),1)
+    c.Lib.Flags.UpgradePlan="Manual";c.Lib.Flags.UpgradePriority="Extended Mags";eq(c.A:OrderedLevels()[1].Name,"Extended Mags")
+end)
+
+test("selected native damage plan refuses to buy an unrelated category",function()
+    local c=setup();c.Weapon("Custom");c.Levels.Custom:Remove(c.Levels.Custom["AP Rounds"])
+    c.A:ScanInventory();c.Lib.Items.UpgradeWeapon:Set("Custom");c.Lib.Flags.UpgradePlan="Headshots first"
+    eq(#c.A:OrderedLevels(),0);eq(c.Shop.Calls,0)
+end)
+
+test("supply route cost rejects crossing danger and ranks travel time with exposure",function()
+    local c=setup();local z=c.Zombie("Crossing",10,0)
+    local path={{Position=Vector3.new(0,3,0)},{Position=Vector3.new(20,3,0)}}
+    eq(c.A:SupplyRouteCost(path,{z},16),nil)
+    local safe={{Position=Vector3.new(0,3,20)},{Position=Vector3.new(20,3,20)}}
+    local exposed=c.A:SupplyRouteCost(safe,{z},16);local clear=c.A:SupplyRouteCost(safe,{},16)
+    assert(exposed>clear);eq(clear,1.25);eq(c.A:SupplyRouteCost({}, {},16),nil)
+end)
+
+test("ammo adapter scoring chooses safer farther stock and preserves true distance",function()
+    local c=ammoFixture();local roof=instance("RoofAmmo","Model",c.Box.Parent)
+    roof.PrimaryPart=instance("Handle","Part",roof,{Position=Vector3.new(30,3,0)})
+    for key,value in pairs({Time=5,Ammo=500,MaxAmmo=500})do instance(key,"NumberValue",roof,{Value=value})end
+    c.Box.PrimaryPart.Position=Vector3.new(12,3,0)
+    local box,d=c.Ammo:Nearest(c.Root,function(b,distance)return b==roof and 1 or 100 end)
+    eq(box,roof);eq(d,30);eq(c.Ammo:Nearest(c.Root,function()return math.huge end),nil)
+end)
+
+test("route selection rejects unreachable box and throttles repeated path computations",function()
+    local c=setup();local near={PrimaryPart={Position=Vector3.new(20,3,0)}};local far={PrimaryPart={Position=Vector3.new(40,3,0)}}
+    c.Refill.Nearest=function(_,root,cost)
+        local score=math.huge;local best,d
+        for _,box in ipairs({near,far})do local dist=(root.Position-box.PrimaryPart.Position).Magnitude;local s=cost and cost(box,dist) or dist
+            if s<score then score=s;best=box;d=dist end end
+        return best,d
+    end
+    local paths=game:GetService("PathfindingService");local calls=0
+    paths.CreatePath=function()return {ComputeAsync=function(self,from,to)calls=calls+1;self.To=to;self.Status=to.X<25 and "Failed" or "Success" end,
+        GetWaypoints=function(self)return {{Position=c.Root.Position},{Position=self.To}}end}end
+    eq(c.A:SupplyBox(c.H,c.Root),nil);eq(c.A:SupplyBox(c.H,c.Root),nil);eq(#Tasks,1);flush();eq(calls,2)
+    eq(c.A:SupplyBox(c.H,c.Root),far);eq(calls,2)
+    c.Root.Position=Vector3.new(11,3,0);eq(c.A:SupplyBox(c.H,c.Root),nil);eq(#Tasks,0)
+    Now=Now+2.1;c.A:SupplyBox(c.H,c.Root);eq(#Tasks,1);c.A:Destroy();flush();eq(c.A.SupplyCache.Position.X,0)
+end)
+
+test("return to main does not steal a backup waiting for native refill",function()
+    local c=setup();local main=c.Weapon("Main");local backup=c.Weapon("Backup",c.P.Character)
+    c.Lib.Flags.FarmAutoShoot=true;c.Lib.Flags.FarmAutoRefill=true;c.Lib.Flags.FarmReturnMain=true;c.Lib.Flags.FarmMainWeapon="Main"
+    c.Refill.Needs=function(_,tool)return tool==backup end;c.A:ReturnMain(c.H);eq(#Tasks,0)
+    c.Refill.Needs=function()return false end;c.A:ReturnMain(c.H);eq(#Tasks,1);flush();eq(main.Parent,c.P.Character)
 end)
 
 print(string.format("%d passed, %d failed",passed,failed))

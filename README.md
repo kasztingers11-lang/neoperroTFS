@@ -20,6 +20,16 @@ Execute `loader.luau` in Real, or execute `dist/neoperroTFS.luau` directly. Righ
 
 The **0.01-second refill experiment failed**: reserve did not increase. Its test button and timer changes are removed. Normal auto refill retains native timing and proximity. Instant or anywhere refill is not supported. Shop upgrades and ammo refill use different native operations; an accepted purchase does not establish that the refill wait can be skipped.
 
+## Loadout and efficiency
+
+**LOADOUT** adds MAIN WEAPON, BACKUP WEAPON and RETURN TO MAIN. Choices refresh from owned guns. Supported loaded weapons take priority over reserve-only weapons; preferences break the order within those groups. A completely dry main falls back normally. RETURN TO MAIN switches back once the main is usable and pending inventory refill/shop work is finished. Charge weapons remain manual. Automatic leaves the existing inventory ranking in place.
+
+**USE WEAPON PRESETS** is opt-in. Select PRESET WEAPON and set PRESET SHOTS/S; that gun uses its saved rate while RAPID FIRE is enabled. Unconfigured guns use the global rate. USE GLOBAL RATE FOR WEAPON deletes its override. Gun mods and smart-shot cadence share the same requested rate. Profiles save the rate map and restore weapon choices when ownership arrives later. This does not establish the server's accepted firing throughput.
+
+**UPGRADE PLAN** offers Manual, Damage first and Headshots first. Plans sort existing native categories by their names: head-related names, damage / stopping power / AP rounds, then other categories. Headshots first falls back to a damage category if no head category exists. Selected-only upgrades one matching category; All upgrades orders every real category. Without a matching category, selected-only does not buy an unrelated upgrade. Native prices, permissions, cash reserve and confirmation still govern purchases; plans do not enable AUTO UPGRADE or spending themselves.
+
+Ammo-box selection now ranks navmesh routes by travel time with a penalty for close threat exposure. Segments crossing within six studs of a predicted threat are rejected. At most three candidates are evaluated per batch, no more than once every two seconds; unsuccessful batches rotate through remaining stock. Results expire after four seconds or ten studs of player movement. Nearby native interactions still use the normal safety/timing checks. While selection is pending, no unchecked distant route is selected. Cached threat estimates can become stale; ordinary movement checks and emergency retreat remain active. This is not a guarantee of a safe route.
+
 ## Focus and camera
 
 Background operation is permanent. There is no RUN WHILE UNFOCUSED toggle; old profiles containing a disabled FarmBackground flag cannot disable it. Enabled automation and gun mods continue while unfocused, while the neoperro UI is open, and while the native ESC menu or a textbox/key capture is active. STOP AUTOMATION, individual feature switches and UNLOAD still work.
@@ -50,7 +60,7 @@ Unassigned keys never match mouse `Unknown` key codes. Feature shortcuts run onl
 
 `src/Library.luau` renders the UI; `Features` manages gun changes; `Automation` coordinates gameplay; `Navigation`, `AmmoAdapter` and `ShopAdapter` wrap native movement, refill and shop interactions; `Visuals` owns shot effects. Native closure layouts are guarded against the inspected game v312. Native firing packets are not rewritten.
 
-Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for four packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 110 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
+Run `node build.mjs` to regenerate the standalone bundle and UI textures (no npm dependencies). Run `node --test tests/build.test.mjs` for four packaging checks. With Python and lupa, `python tests/run_behavior.py` runs 121 behavioral checks. `--deps PATH` can reuse an existing dependency directory. Factories and isolated UI input methods execute from production source with explicit mocks; only `: any` annotations are stripped from factory source. These checks do not prove live combat, server purchases or survival.
 
 Target acquisition uses squared distances and at most eight visibility rays per throttled search, with fair revisits to blocked candidates. Retreat checks closest approach along movement segments, not just endpoint distance, and nearby threats dominate separation steering. Refill selection ranks reserve fractions using real capacities; its safety gap considers each zombie's speed and distance separately. Charge weapons retain their native firing type under RAPID FIRE. See [MATH_REVIEW.md](MATH_REVIEW.md) for the offline audit and simulation limits.
 
